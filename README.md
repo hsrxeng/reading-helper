@@ -1,11 +1,69 @@
-<div align="center">
+# 영어 지문 정밀 구문분석기 & 수능 5지선다 실전 독해기
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+> **영어 교사·강사 및 수험생을 위한 고등 영어 지문 정밀 구문분석 및 수능 실전 독해 웹 애플리케이션**  
+> 문장 성분(S·V·O·C·M) 태깅, 끊어 읽기 직독직해, 자연스러운 완역, 문법 포인트, 어휘 정리, 5지선다 오답 소거 분석을 제공합니다.
 
-  <h1>Built with AI Studio</h2>
+---
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## 🚀 1. GitHub에서 다운로드(Clone)하여 로컬에서 실행하기
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+이 프로젝트를 로컬 컴퓨터에서 실행하려면 Node.js(v18 이상)가 설치되어 있어야 합니다.
 
-</div>
+### 실행 순서
+```bash
+# 1. 의존성 패키지 설치
+npm install
+
+# 2. 로컬 개발 서버 시작 (Express + Vite 통합 구동)
+npm run dev
+```
+
+터미널에 안내되는 주소(**`http://localhost:3000`**)를 웹 브라우저에서 열면 즉시 실행됩니다.
+
+> **💡 Gemini AI 연동 안내**  
+> 프로젝트 루트에 `.env` 파일을 만들고 아래와 같이 Google Gemini API 키를 입력하시면 실시간 AI 구문분석 기능이 작동합니다:  
+> ```env
+> GEMINI_API_KEY=여기에_발급받은_Gemini_API_키_입력
+> ```  
+> *(API 키가 없더라도 내장된 학평 기출 지문 프리셋 및 스마트 규칙 분석 엔진으로 바로 이용 가능합니다.)*
+
+---
+
+## 🌐 2. 깃허브 페이지(GitHub Pages)에 배포할 때 페이지가 안 떴던 이유와 해결법
+
+GitHub 저장소의 `Settings` > `Pages`를 켰을 때 **빈 흰색 화면(White Screen)**이 나왔던 원인은 다음과 같습니다:
+
+1. **원인 1: 브라우저가 `.tsx` 소스 코드를 직접 실행할 수 없음**  
+   - GitHub Pages 기본 설정(`Deploy from a branch -> / (root)`)은 빌드되지 않은 원본 소스 파일(`main.tsx`)을 그대로 전달하므로 브라우저에서 스크립트 실행 오류가 발생합니다.
+2. **원인 2: 서브 디렉터리 경로 에러**  
+   - GitHub Pages는 `https://아이디.github.io/저장소이름/` 형태로 서브 경로를 사용하므로, 상대 경로(`base: './'`) 설정이 없으면 CSS와 JS 파일이 404 에러로 로드되지 않습니다.
+
+### ✅ 해결 방법 (30초 만에 해결하기)
+
+이 저장소에는 **GitHub Actions 자동 빌드 및 배포 워크플로우(`.github/workflows/deploy.yml`)**가 이미 완벽히 구성되어 있습니다.
+
+1. GitHub 저장소 상단의 **`Settings` (설정)** 탭 클릭
+2. 왼쪽 메뉴에서 **`Pages`** 클릭
+3. **Build and deployment** 아래의 **`Source`** 항목을:  
+   👉 **`Deploy from a branch`** 대신 **`GitHub Actions`**로 변경!
+4. 이제 코드가 푸시될 때마다 GitHub가 자동으로 `npm run build`를 거쳐 배포하며, 몇 분 뒤 생성되는 페이지 주소로 접속하시면 완벽하게 페이지가 열립니다!
+
+---
+
+## 📦 3. 배포 환경별 기능 안내
+
+| 환경 | 프론트엔드 UI 및 기출 프리셋 | 브라우저 내장 규칙 분석 | Gemini 3.1 실시간 AI 분석 |
+| :--- | :---: | :---: | :---: |
+| **로컬 PC (`npm run dev`)** | ✅ 지원 | ✅ 지원 | ✅ 지원 (`.env` 설정 시) |
+| **GitHub Pages (정적 호스팅)** | ✅ 지원 | ✅ 지원 | ⚠️ 정적 웹 호스팅 특성상 Node 백엔드 미지원 (규칙 기반으로 자동 대체) |
+| **Cloud Run / Vercel / Render** | ✅ 지원 | ✅ 지원 | ✅ 지원 (Node.js 백엔드 구동) |
+
+---
+
+## 🛠️ 주요 기능
+- **수능·학평 5지선다 실전 독해 모드**: 정답 근거, 오답 소거 분석, 논리 전개 흐름, 지문-선지 재진술(Paraphrase) 매핑
+- **문장 성분 정밀 태깅**: 주어(S), 술어동사(V), 목적어(O), 보어(C), 수식어(M) 시각화
+- **어순별 직독직해 & 자연스러운 완역**: 끊어 읽기 슬래시(/) 표기 및 의미 단위 해석
+- **시험지 통째로 붙여넣기 (스마트 추출)**: 발문, 지문, ①~⑤ 선지 자동 분리
+- **A4 인쇄 & PDF 내보내기**: 교재 스타일 / 해설지 스타일 레이아웃 출력 지원
+- **지문 보관함 (Local History)**: 최대 10개 지문 로컬 자동 보관 및 즉시 복원
