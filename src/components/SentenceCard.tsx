@@ -22,9 +22,17 @@ interface SentenceCardProps {
   index: number;
   settings: DisplaySettingsState;
   isClueSentence?: boolean;
+  gradeLevel?: string;
 }
 
-export const SentenceCard: React.FC<SentenceCardProps> = ({ sentence, index, settings, isClueSentence = false }) => {
+export const SentenceCard: React.FC<SentenceCardProps> = ({
+  sentence,
+  index,
+  settings,
+  isClueSentence = false,
+  gradeLevel,
+}) => {
+  const isBeginner = gradeLevel?.includes('초급') || gradeLevel === '고1';
   const [isPlayingAudio, setIsPlayingAudio] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
   // Track which grammar point gist cards are expanded by index
@@ -477,8 +485,18 @@ export const SentenceCard: React.FC<SentenceCardProps> = ({ sentence, index, set
             {/* Vocabulary */}
             {settings.showVocabulary && sentence.vocabulary && sentence.vocabulary.length > 0 && (
               <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
-                <div className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5 flex items-center gap-1">
-                  <span>핵심 어휘 및 숙어 정리</span>
+                <div className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5 flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5">
+                    <span>핵심 어휘 및 숙어 정리</span>
+                    {isBeginner && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                        초보 필수 어휘 &amp; 상세 뜻풀이
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[11px] text-slate-400 font-normal">
+                    총 {sentence.vocabulary.length}개 수록
+                  </span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {(sentence.vocabulary || []).map((vocab, vIdx) => {

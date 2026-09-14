@@ -37,7 +37,7 @@ export default function App() {
   const defaultSample = SAMPLE_PASSAGES[0];
   const [mode, setMode] = useState<AnalysisMode>('general');
   const [passageText, setPassageText] = useState(defaultSample.passage);
-  const [gradeLevel, setGradeLevel] = useState('고2');
+  const [gradeLevel, setGradeLevel] = useState('중급자');
   const [questionPrompt, setQuestionPrompt] = useState(
     defaultSample.suneungData?.questionPrompt || ''
   );
@@ -485,7 +485,9 @@ export default function App() {
 
   const handleSelectSample = (sample: SamplePassage) => {
     setPassageText(sample.passage);
-    setGradeLevel(sample.grade);
+    // Map sample grade to DifficultyLevel
+    const mappedLevel = sample.grade === '고1' ? '초급자' : sample.grade === '고3' ? '상급자' : '중급자';
+    setGradeLevel(mappedLevel);
     if (sample.suneungData) {
       setQuestionPrompt(sample.suneungData.questionPrompt);
       setChoices(
@@ -769,9 +771,24 @@ export default function App() {
                   <div className="p-1.5 bg-indigo-600 text-white rounded-lg shrink-0 mt-0.5">
                     <Sparkles className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className="font-bold text-indigo-950 dark:text-indigo-200 mb-0.5">
-                      지문 핵심 요지 &amp; 주제 (Theme &amp; Topic)
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="font-bold text-indigo-950 dark:text-indigo-200">
+                        지문 핵심 요지 &amp; 주제 (Theme &amp; Topic)
+                      </span>
+                      {(analysisResult.difficulty || analysisResult.gradeLevel) && (
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[11px] font-bold tracking-tight inline-flex items-center gap-1 ${
+                            String(analysisResult.difficulty || analysisResult.gradeLevel).includes('초급')
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-800'
+                              : String(analysisResult.difficulty || analysisResult.gradeLevel).includes('상급')
+                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/80 dark:text-purple-300 border border-purple-300/80 dark:border-purple-800'
+                              : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-300 border border-indigo-300/80 dark:border-indigo-800'
+                          }`}
+                        >
+                          {analysisResult.difficulty || analysisResult.gradeLevel} 맞춤 분석
+                        </span>
+                      )}
                     </div>
                     <p className="text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
                       {analysisResult.summary}
@@ -842,6 +859,7 @@ export default function App() {
                     index={idx}
                     settings={displaySettings}
                     isClueSentence={isClue}
+                    gradeLevel={analysisResult.difficulty || analysisResult.gradeLevel || gradeLevel}
                   />
                 );
               })}

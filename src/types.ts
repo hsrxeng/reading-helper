@@ -57,9 +57,12 @@ export interface SuneungAnalysis {
 
 export type AnalysisMode = 'general' | 'suneung';
 
+export type DifficultyLevel = '초급자' | '중급자' | '상급자';
+
 export interface PassageAnalysisResult {
   title?: string;
   gradeLevel?: string;
+  difficulty?: DifficultyLevel;
   summary?: string; // 지문 핵심 요지 / 주제
   sentences: SentenceAnalysis[];
   mode?: AnalysisMode;

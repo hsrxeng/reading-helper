@@ -185,12 +185,19 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+function normalizeLevel(level?: string): '초급자' | '중급자' | '상급자' {
+  if (!level) return '중급자';
+  if (level.includes('초급') || level === '고1') return '초급자';
+  if (level.includes('상급') || level.includes('수능') || level.includes('심화') || level === '고3') return '상급자';
+  return '중급자';
+}
+
 // Analyze English passage endpoint
 app.post('/api/analyze', async (req, res) => {
   try {
     const {
       passage,
-      gradeLevel = '고2',
+      gradeLevel = '중급자',
       mode = 'general',
       questionPrompt = '',
       choices = [],
@@ -202,24 +209,64 @@ app.post('/api/analyze', async (req, res) => {
       });
     }
 
+    const targetLevel = normalizeLevel(gradeLevel);
+
     const ai = getGeminiClient();
     if (!ai) {
       // Fallback rule-based analyzer when API key is missing
-      const fallbackData = generateRuleBasedAnalysis(passage, gradeLevel, mode, questionPrompt, choices);
+      const fallbackData = generateRuleBasedAnalysis(passage, targetLevel, mode, questionPrompt, choices);
       return res.json({
         success: true,
         data: fallbackData,
         isFallback: true,
-        notice: 'Gemini API 키가 설정되지 않아 고등 영어 구문 규칙 기반 분석 엔진으로 생성되었습니다. 정밀 AI 분석을 원하시면 Settings에서 GEMINI_API_KEY를 설정하세요.',
+        notice: 'Gemini API 키가 설정되지 않아 규칙 기반 분석 엔진으로 생성되었습니다. 정밀 AI 분석을 원하시면 Settings에서 GEMINI_API_KEY를 설정하세요.',
       });
     }
 
     const isSuneung = mode === 'suneung';
 
+    let levelSpecificInstruction = '';
+    if (targetLevel === '초급자') {
+      levelSpecificInstruction = `
+[★ 핵심 난이도 타겟: 초급자 (기초 구문 다지기 & 중학 기초 연계 & 영포자 탈출 모드) ★]
+1. tokens 청크 분할: 문장을 2~3단어 단위, 전치사구 앞, to부정사/동명사 앞 등 아주 잘게 쪼개어 배치할 것.
+   - 전치사구는 반드시 clauseType: 'prepositional' 및 role: 'M'으로 지정하여 UI 상에서 수식어 거품 괄호 ( )로 묶여 보이도록 할 것.
+   - 주어(S), 서술어(V), 목적어(O), 보어(C) 뼈대 단어는 명확하게 role을 부여하고, 수식어구(M)는 철저히 분리할 것.
+2. tagTop (상단 라벨): 어려운 한자 문법 용어 대신 알기 쉬운 풀이말을 제공할 것.
+   - 예: '주어 [명사]', '서술어 [동사]', '목적어 [동작 대상]', '수식어 거품 [전치사구]', '연결다리 [관계사]', '동작 덩어리 [to부정사]'
+3. directTranslation (직독직해): 빗금(/)을 2~3단어마다 촘촘하게 배치하여, 영어를 읽는 순서 그대로 한국어로 즉시 직독직해할 수 있도록 세밀하게 끊어 쓸 것.
+4. grammarPoints (핵심 어법): 중학~고1 수준의 기초 필수 어법 2~3개 (문장의 5형식 뼈대 잡기, be동사 vs 일반동사, 주어-동사 기본 수일치, to부정사 용법 등)를 누구나 이해할 수 있게 매우 친절하고 기초적인 언어로 설명할 것.
+5. vocabulary (어휘 - ★매우 중요: 중학생 필수 기초 어휘 및 상세 뜻풀이★):
+   - 영어에 자신 없는 중하위권 학생, 영포자 학생의 시각에 맞춰 "이것도 모를 수 있다"고 가정하고 문장당 4~7개 이상 충분히 풍성하게 추출할 것.
+   - 고교생에게 당연해 보이는 중학 필수 단어(예: allow, improve, notice, effect, result, create, decide, cause, support, common 등) 및 불규칙 과거분사, 전치사구 숙어(예: because of, in order to, lead to, rely on 등)를 빠짐없이 수록할 것.
+   - 뜻(meaning)은 단어장식의 무미건조한 1단어 뜻에 그치지 않고, [품사]와 본문 문맥에서의 자연스러운 뜻, 그리고 필요 시 유용한 짝꿍 표현이나 기초 팁을 덧붙여 매우 친절하게 작성할 것 (예: "허락하다, 가능하게 하다 (allow A to V 형태)", "결과, 영향 (~에 미치는 영향)", "이끌다, 유발하다 (전치사 to와 함께 씀)").`;
+    } else if (targetLevel === '상급자') {
+      levelSpecificInstruction = `
+[★ 핵심 난이도 타겟: 상급자 (수능 1등급 / 킬러 문항 / 논리 독해 모드) ★]
+1. tokens 청크 분할: 자잘한 끊어읽기 대신 주절과 종속절, 대등절, 핵심 삽입구 위주로 대범하고 거시적으로 묶을 것.
+   - 단순 전치사구는 본동사나 목적어와 함께 하나의 큰 의미 단위로 묶고, 도치·가정법·분사구문·이중관계사 등 고난도 구문만 정밀 추출할 것.
+2. tagTop (상단 라벨): 고난도 구조 및 논리적 기능을 명시할 것.
+   - 예: '부정어 도치 구문', '가정법 도치', '동격 명사절', '결정적 정답 근거문', '대조(Contrast) 전환부', '양보 부사절'
+3. directTranslation (직독직해): 시험장에서 필요한 빠른 속독속해(Skimming/Scanning) 호흡으로 핵심 논리 흐름을 살려 직독할 것.
+4. grammarPoints (핵심 어법): 기초 문법(be동사, 단순 3형식 등)은 일체 생략하고, 수능 킬러 문항에서 해석을 왜곡하기 쉬운 고난도 구조(도치, 무생물 주어, 복합 분사구문, 삽입절, 생략 구문) 및 평가원 함정 패턴 위주로 심도 있게 분석할 것.
+5. vocabulary (어휘): 기초 단어는 생략하고, 평가원 빈출 고난도 어휘, 문맥적 비유 표현, 학술적 전문 용어, 동의어/반의어 및 선지 패러프레이징(Paraphrasing) 연계 어휘 위주로 심층 정리할 것.
+6. suneungAnalysis (수능 모드 시): 지문과 선지 사이의 재진술(Paraphrase) 짝꿍을 3쌍 이상 정밀 분석하고, 매력적 오답의 논리적 함정(과도한 일반화, 인과 전도, 지문 언급 무관 등)을 평가원 출제자의 시각에서 날카롭게 소거할 것.`;
+    } else {
+      levelSpecificInstruction = `
+[★ 핵심 난이도 타겟: 중급자 (고교 내신 & 기본 모의고사 표준 모드) ★]
+1. tokens 청크 분할: 자연스러운 고교 수준 의미 덩어리(구/절 단위)로 묶어 문장 구조를 직관적으로 파악할 수 있도록 구성할 것.
+2. tagTop (상단 라벨): 고교 내신 표준 문법 용어 ('주격관계대명사절', '동명사 목적어', '상관접속사 병렬', '분사구문') 활용.
+3. directTranslation (직독직해): 고교 영어 시험 직독직해 표준 호흡으로 끊어 읽기 제공.
+4. grammarPoints (핵심 어법): 고교 내신 서술형 및 모의고사 빈출 어법 (주어-동사 수일치, 관계사 that vs what, 능동 vs 수동태, 등위접속사 병렬) 중심 2~3개 요약.
+5. vocabulary (어휘): 고교 필수 어휘 및 문맥 속 다의어 중심 정리.`;
+    }
+
     let systemInstruction = `당신은 대한민국 고교 영어 교육 및 수능/모의고사 출제 및 구문 분석 전문가입니다.
 제공된 영어 지문(교과서, 모의고사, 부교재, 영문 기사 등)을 문장별 정밀 구문분석 JSON으로 분석하여 반환해야 합니다.
 
-[분석 필수 원칙]
+${levelSpecificInstruction}
+
+[분석 공통 원칙]
 1. 원문의 모든 문장을 한 문장도 빠짐없이 순서대로 분석할 것 (sentenceNumber: 1, 2, 3...)
 2. 각 문장의 형식(1형식~5형식 및 변형)을 파악할 것.
 3. tokens 배열은 문장을 의미 있는 단어/어구 덩어리(chunk)로 나누어 상단/하단에 겹쳐 표시할 수 있도록 구성:
@@ -231,19 +278,20 @@ app.post('/api/analyze', async (req, res) => {
      * 'adjective': 형용사/명사수식분사 (주황색 계열)
      * 'adverb': 부사/부사적수식어 (보라색 계열)
      * 'other': 전치사, 접속사, 관사 등
-   - tagTop: 상단에 띄울 문법 태그나 짧은 역할 설명 (예: '관계절', '명사절', '동명사구', '분사구문', '전치사구', '가주어', '진주어', '수동태', '주어', '술어동사' 등)
-   - meaning: 해당 어구 덩어리의 한국어 직독 해석 (예: '초인적인 힘을', '개인들은', '목표에')
+   - tagTop: 상단에 띄울 문법 태그나 짧은 역할 설명
+   - meaning: 해당 어구 덩어리의 한국어 직독 해석
    - clauseType: 괄호 및 하이라이트 스타일용 ('none' | 'relative' [관계절대괄호] | 'noun' <명사절꺾쇠> | 'adverb' (부사절/구소괄호) | 'prepositional' (전치사구) | 'parenthesis')
 4. directTranslation: 슬래시(/)로 끊어 읽기 표기된 영문 + 바로 아래 한국어 끊어읽기 직독직해.
 5. polishedTranslation: 자연스러운 한국어 완역 (해설지 스타일).
-6. grammarPoints: 문장에 포함된 핵심 어법 및 구문 포인트 2~4개 요약 (예: '주어-동사 수일치', '5형식: 목적어와 목적격보어').
-7. vocabulary: 해당 문장의 핵심 어휘 및 숙어 (원형과 문맥적 의미).
+6. grammarPoints: 문장에 포함된 핵심 어법 및 구문 포인트 2~4개 요약.
+7. vocabulary: 해당 문장의 핵심 어휘 및 숙어.
 
 [반환 최상위 JSON 스키마]:
 반드시 최상위 JSON 객체에 "sentences" 배열을 포함해야 합니다:
 {
-  "title": "${gradeLevel} 영어 지문 정밀 구문분석",
-  "gradeLevel": "${gradeLevel}",
+  "title": "[${targetLevel}] 영어 지문 정밀 구문분석",
+  "gradeLevel": "${targetLevel}",
+  "difficulty": "${targetLevel}",
   "summary": "지문 핵심 요약 1~2줄",
   "sentences": [
     {
@@ -627,11 +675,12 @@ ${passage.trim()}`;
  */
 function generateRuleBasedAnalysis(
   passage?: string,
-  gradeLevel: string = '고2',
+  gradeLevel: string = '중급자',
   mode: string = 'general',
   questionPrompt: string = '',
   choicesInput: string[] = []
 ) {
+  const targetLevel = normalizeLevel(gradeLevel);
   const safePassage = typeof passage === 'string' ? passage : String(passage || '');
   const rawSentences = safePassage
     .replace(/\r\n/g, ' ')
@@ -651,34 +700,90 @@ function generateRuleBasedAnalysis(
     const beVerbs = new Set(['is', 'are', 'was', 'were', 'be', 'been', 'being', "'s", "'re"]);
     const relatives = new Set(['who', 'which', 'that', 'whom', 'whose', 'where', 'when', 'why', 'how']);
 
+    // Middle-school high-frequency beginner vocabulary bank with friendly explanations
+    const middleSchoolVocabBank: Record<string, string> = {
+      allow: '허락하다, 가능하게 하다 (동사: allow A to V 형태 자주 쓰임)',
+      improve: '향상시키다, 개선되다 (동사)',
+      notice: '알아차리다, 주목하다 (동사) / 안내문 (명사)',
+      effect: '효과, 영향, 결과 (명사: have an effect on)',
+      affect: '영향을 미치다 (동사)',
+      result: '결과 (명사) / 발생하다 (동사: result in ~을 낳다)',
+      cause: '원인 (명사) / 유발하다, 일으키다 (동사)',
+      create: '만들다, 창조하다 (동사)',
+      decide: '결정하다, 결심하다 (동사)',
+      support: '지지하다, 후원하다, 지탱하다 (동사/명사)',
+      common: '흔한, 공통의 (형용사)',
+      difficult: '어려운, 힘든 (형용사)',
+      different: '다른, 차이가 나는 (형용사)',
+      important: '중요한, 중대한 (형용사)',
+      require: '필요로 하다, 요구하다 (동사)',
+      include: '포함하다 (동사)',
+      increase: '증가하다, 늘리다 (동사/명사)',
+      decrease: '감소하다, 줄이다 (동사/명사)',
+      experience: '경험 (명사) / 겪다, 경험하다 (동사)',
+      situation: '상황, 처지 (명사)',
+      opportunity: '기회 (명사: chance와 같은 뜻)',
+      challenge: '도전, 어려운 과제 (명사)',
+      successful: '성공적인 (형용사)',
+      protect: '보호하다, 지키다 (동사)',
+      produce: '생산하다, 만들어내다 (동사)',
+      provide: '제공하다, 주다 (동사: provide A with B)',
+      reduce: '줄이다, 낮추다 (동사)',
+      suggest: '제안하다, 암시하다 (동사)',
+      develop: '발달시키다, 개발하다 (동사)',
+      prepare: '준비하다, 대비하다 (동사)',
+      remember: '기억하다 (동사)',
+      forget: '잊어버리다 (동사)',
+      understand: '이해하다, 알아듣다 (동사)',
+      information: '정보 (명사)',
+      continue: '계속하다, 이어지다 (동사)',
+      expect: '기대하다, 예상하다 (동사)',
+      discover: '발견하다, 알아내다 (동사)',
+      prevent: '예방하다, 막다 (동사: prevent A from -ing)',
+      various: '다양한, 여러 가지의 (형용사)',
+      benefit: '이익, 혜택 (명사) / 도움이 되다 (동사)',
+    };
+
     let foundVerb = false;
     let foundSubject = false;
 
     const lowerSent = sent.toLowerCase();
-    if (lowerSent.includes('which') || lowerSent.includes('who') || (lowerSent.includes('that') && !lowerSent.includes('that is'))) {
-      grammarPoints.push('관계사절(선행사 수식) 및 접속사 구분');
-    }
-    if (/\b(is|are|was|were|been|being)\s+\w+ed\b/i.test(sent)) {
-      grammarPoints.push('수동태 문형 (be + p.p. / 능동 vs 수동 관계)');
-    }
-    if (/\bto\s+[a-z]{3,}\b/i.test(sent)) {
-      grammarPoints.push('to부정사의 용법 (목적·명사수식 형용사적 용법)');
-    }
-    if (/\b\w+ing\b/i.test(sent)) {
-      grammarPoints.push('분사구문(-ing) 또는 동명사구의 역할 판별');
-    }
-    if (/\b(and|but|or)\b/i.test(sent)) {
-      grammarPoints.push('등위접속사 병렬 구조 (어구 형태 및 시제 일치)');
-    }
-    if (/\b(more|less|-er)\b.*than/i.test(sent) || /\bas\s+\w+\s+as\b/i.test(sent)) {
-      grammarPoints.push('비교급 구문 및 비교 대상의 대등성');
-    }
-    if (/\b(if|unless)\b/i.test(sent)) {
-      grammarPoints.push('조건 부사절 (시간·조건 부사절에서는 현재시제가 미래를 대신함)');
-    }
-    if (grammarPoints.length === 0) {
-      grammarPoints.push('주어-동사 수일치 (핵심 주어와 술어동사의 수 일치)');
-      grammarPoints.push('문장의 5형식 문형 구조 및 수식어 거품 걷어내기');
+
+    if (targetLevel === '초급자') {
+      grammarPoints.push('[초급 기초] 문장의 5형식 뼈대: 주어(S) + 서술어(V) 핵심 성분 찾기');
+      grammarPoints.push('[초급 기초] 수식어 거품 괄호 묶기 ( ): 전치사구(M)를 걷어내어 문장 구조 단순화');
+      if (lowerSent.includes('is') || lowerSent.includes('are') || lowerSent.includes('was') || lowerSent.includes('were')) {
+        grammarPoints.push('[초급 기초] be동사 수일치: 주어의 단수/복수에 맞춘 동사 형태');
+      } else {
+        grammarPoints.push('[초급 기초] 일반동사의 시제와 3인칭 단수 -s 규칙');
+      }
+    } else if (targetLevel === '상급자') {
+      grammarPoints.push('[수능 1등급] 거시적 구문 분석: 주절과 종속절의 논리적 상관관계 및 주제문 규정');
+      if (lowerSent.includes('which') || lowerSent.includes('who') || lowerSent.includes('that')) {
+        grammarPoints.push('[평가원 킬러] 복합 관계사절 수식 구조 및 선행사 판별 오답 함정');
+      }
+      if (/\b\w+ing\b/i.test(sent) || /\b(is|are|was|were)\s+\w+ed\b/i.test(sent)) {
+        grammarPoints.push('[수능 어법 핵심] 능동(현재분사) vs 수동(과거분사) 판별 및 의미상 주체 추론');
+      } else {
+        grammarPoints.push('[논리 독해] 핵심 키워드의 문맥적 재진술(Paraphrasing) 및 대립항 도출');
+      }
+    } else {
+      if (lowerSent.includes('which') || lowerSent.includes('who') || (lowerSent.includes('that') && !lowerSent.includes('that is'))) {
+        grammarPoints.push('관계사절(선행사 수식) 및 접속사 that vs what 구분');
+      }
+      if (/\b(is|are|was|were|been|being)\s+\w+ed\b/i.test(sent)) {
+        grammarPoints.push('수동태 문형 (be + p.p. / 능동 vs 수동 관계)');
+      }
+      if (/\bto\s+[a-z]{3,}\b/i.test(sent)) {
+        grammarPoints.push('to부정사의 용법 (목적·명사수식 형용사적 용법)');
+      }
+      if (/\b\w+ing\b/i.test(sent)) {
+        grammarPoints.push('분사구문(-ing) 또는 동명사구의 역할 판별');
+      }
+      if (grammarPoints.length === 0) {
+        grammarPoints.push('주어-동사 수일치 (핵심 주어와 술어동사의 수 일치)');
+        grammarPoints.push('문장의 5형식 문형 구조 및 수식어 거품 걷어내기');
+      }
     }
 
     words.forEach((w, wIdx) => {
@@ -693,39 +798,58 @@ function generateRuleBasedAnalysis(
         pos = 'other';
         role = 'M';
         clauseType = 'prepositional';
-        tagTop = '전치사';
+        tagTop = targetLevel === '초급자' ? '수식어 거품 (전치사구)' : '전치사구';
       } else if (relatives.has(clean)) {
         pos = 'other';
         role = '';
         clauseType = 'relative';
-        tagTop = '관계사';
+        tagTop = targetLevel === '초급자' ? '연결다리 [관계사]' : '관계사절';
       } else if (modals.has(clean) || beVerbs.has(clean) || (!foundVerb && wIdx > 0 && wIdx <= 3 && /^[a-z]+(s|ed|ing)?$/i.test(clean))) {
         pos = 'verb';
         role = 'V';
-        tagTop = '술어동사';
+        tagTop = targetLevel === '초급자' ? '서술어 [동사]' : '술어동사';
         foundVerb = true;
       } else if (!foundSubject && wIdx === 0) {
         pos = 'noun';
         role = 'S';
-        tagTop = '주어';
+        tagTop = targetLevel === '초급자' ? '주어 [명사]' : targetLevel === '상급자' ? '주어 [핵심 화제]' : '주어';
         foundSubject = true;
       } else if (foundVerb && !role) {
         if (wIdx === words.length - 1 && clean.length > 2) {
           pos = 'noun';
           role = 'O';
-          tagTop = '목적어';
+          tagTop = targetLevel === '초급자' ? '목적어 [동작 대상]' : '목적어';
         } else if (wIdx >= 2 && !foundSubject) {
           pos = 'noun';
           role = 'O';
-          tagTop = '목적어';
+          tagTop = targetLevel === '초급자' ? '목적어 [동작 대상]' : '목적어';
         }
       }
 
-      if (clean.length > 5 && vocabulary.length < 4) {
-        vocabulary.push({
-          word: clean,
-          meaning: `${clean} (본문 핵심 어휘)`,
-        });
+      const minLen = targetLevel === '초급자' ? 3 : targetLevel === '상급자' ? 6 : 5;
+      const maxVocabCount = targetLevel === '초급자' ? 7 : targetLevel === '상급자' ? 3 : 4;
+      const cleanLower = clean.toLowerCase();
+
+      if (clean.length >= minLen && vocabulary.length < maxVocabCount) {
+        if (!vocabulary.some((v) => v.word.toLowerCase() === cleanLower)) {
+          let vocabMeaning = '';
+          if (targetLevel === '초급자') {
+            if (middleSchoolVocabBank[cleanLower]) {
+              vocabMeaning = middleSchoolVocabBank[cleanLower];
+            } else {
+              vocabMeaning = `${clean} (초보 필수 어휘 및 상세 뜻풀이)`;
+            }
+          } else if (targetLevel === '상급자') {
+            vocabMeaning = `${clean} (수능 고난도 어휘 및 문맥적 함의/패러프레이징)`;
+          } else {
+            vocabMeaning = middleSchoolVocabBank[cleanLower] || `${clean} (고교 필수 어휘)`;
+          }
+
+          vocabulary.push({
+            word: clean,
+            meaning: vocabMeaning,
+          });
+        }
       }
 
       tokens.push({
@@ -738,8 +862,10 @@ function generateRuleBasedAnalysis(
       });
     });
 
+    // Chunking interval based on level
+    const chunkInterval = targetLevel === '초급자' ? 2 : targetLevel === '상급자' ? 5 : 3;
     const directChunk = words.reduce((acc, curr, idx) => {
-      return acc + (idx > 0 && idx % 3 === 0 ? ' / ' : ' ') + curr;
+      return acc + (idx > 0 && idx % chunkInterval === 0 ? ' / ' : ' ') + curr;
     }, '').trim();
 
     return {
@@ -755,10 +881,15 @@ function generateRuleBasedAnalysis(
   });
 
   const result: any = {
-    title: mode === 'suneung' ? `${gradeLevel} 수능·모의고사 실전 풀이 및 정밀 구문분석` : `${gradeLevel} 영어 지문 정밀 구문분석`,
-    gradeLevel,
+    title: mode === 'suneung' ? `[${targetLevel}] 수능·모의고사 실전 풀이 및 정밀 구문분석` : `[${targetLevel}] 영어 지문 정밀 구문분석`,
+    gradeLevel: targetLevel,
+    difficulty: targetLevel,
     mode: mode === 'suneung' ? 'suneung' : 'general',
-    summary: '지문의 문장 성분(S·V·O·C) 및 어법 구조 정밀 분석',
+    summary: targetLevel === '초급자'
+      ? '지문의 5형식 기본 문장 성분(S·V·O·C) 및 수식어 거품 괄호 묶기 집중 분석'
+      : targetLevel === '상급자'
+      ? '지문의 거시적 논리 전개 및 평가원 킬러 구문·재진술(Paraphrasing) 심층 분석'
+      : '지문의 문장 성분(S·V·O·C) 및 내신 빈출 어법 구조 정밀 분석',
     sentences,
   };
 

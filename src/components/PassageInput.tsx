@@ -148,39 +148,79 @@ export const PassageInput: React.FC<PassageInputProps> = ({
         </div>
       </div>
 
-      {/* Grade Level Selector Row */}
-      <div className="flex items-center justify-between gap-3 mb-3.5 flex-wrap">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-            난이도 / 학년:
-          </span>
-          {(['고1', '고2', '고3', '수능 · 심화'] as const).map((grade) => (
+      {/* Difficulty Level Selector Row */}
+      <div className="flex flex-col gap-2.5 mb-3.5">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+              <span>분석 난이도 / 수준:</span>
+            </span>
+            <div className="inline-flex rounded-xl p-1 bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 gap-1">
+              {[
+                { key: '초급자', label: '초급자', sub: '기초 구문', icon: '🟢', color: 'emerald' },
+                { key: '중급자', label: '중급자', sub: '실전 내신', icon: '🟡', color: 'indigo' },
+                { key: '상급자', label: '상급자', sub: '수능 1등급', icon: '🔴', color: 'purple' },
+              ].map((lvl) => {
+                const isSelected =
+                  gradeLevel === lvl.key ||
+                  (lvl.key === '초급자' && gradeLevel === '고1') ||
+                  (lvl.key === '중급자' && gradeLevel === '고2') ||
+                  (lvl.key === '상급자' && (gradeLevel === '고3' || gradeLevel.includes('수능') || gradeLevel.includes('심화')));
+
+                return (
+                  <button
+                    key={lvl.key}
+                    type="button"
+                    onClick={() => setGradeLevel(lvl.key)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs border border-slate-200 dark:border-slate-700'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <span>{lvl.icon}</span>
+                    <span>{lvl.label}</span>
+                    <span className="text-[10px] font-normal px-1.5 py-0.2 bg-slate-200/70 dark:bg-slate-700/70 rounded text-slate-600 dark:text-slate-300">
+                      {lvl.sub}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* In Suneung Mode: Smart Import Button */}
+          {mode === 'suneung' && (
             <button
-              key={grade}
               type="button"
-              onClick={() => setGradeLevel(grade)}
-              className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-all cursor-pointer ${
-                gradeLevel === grade
-                  ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-xs font-semibold'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
+              onClick={onOpenSmartImport}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 rounded-xl transition-all cursor-pointer shadow-2xs"
             >
-              {grade}
+              <FileUp className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span>시험지 통째로 붙여넣기 (스마트 분리)</span>
             </button>
-          ))}
+          )}
         </div>
 
-        {/* In Suneung Mode: Smart Import Button */}
-        {mode === 'suneung' && (
-          <button
-            type="button"
-            onClick={onOpenSmartImport}
-            className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 rounded-lg transition-all cursor-pointer shadow-2xs"
-          >
-            <FileUp className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            <span>시험지 통째로 붙여넣기 (스마트 분리)</span>
-          </button>
-        )}
+        {/* Dynamic Level Description Helper Banner */}
+        <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 text-[11px] text-slate-600 dark:text-slate-300 flex items-center gap-2">
+          {gradeLevel === '초급자' || gradeLevel === '고1' ? (
+            <>
+              <span className="font-bold text-emerald-600 dark:text-emerald-400">🟢 초급자 모드:</span>
+              <span>2~3단어 단위로 잘게 끊어 읽기 · 전치사구/수식어 거품 괄호 <code>( )</code> · <strong>초보 기초 필수 단어 상세 뜻풀이 집중</strong> · 친절한 5형식 기초 어법</span>
+            </>
+          ) : gradeLevel === '상급자' || gradeLevel === '고3' || gradeLevel.includes('수능') ? (
+            <>
+              <span className="font-bold text-purple-600 dark:text-purple-400">🔴 상급자 모드:</span>
+              <span>거시적 호흡의 속독형 직독직해 · 도치/특수구문 집중 분석 · 지문-선지 논리적 재진술(Paraphrasing) 심화</span>
+            </>
+          ) : (
+            <>
+              <span className="font-bold text-indigo-600 dark:text-indigo-400">🟡 중급자 모드:</span>
+              <span>자연스러운 의미 덩어리 직독직해 · 고교 내신 서술형 빈출 어법(수일치/관계사/태) · 고교 필수 다의어</span>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Suneung Specific Inputs: Question Prompt */}
