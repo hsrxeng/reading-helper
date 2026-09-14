@@ -307,8 +307,14 @@ export default function App() {
       }
 
       if (!res.ok || !json.success) {
-        // If running in a static environment where /api/analyze is 404 (e.g., GitHub Pages)
-        if (res.status === 404 || !res.ok) {
+        // If running in a true static environment where /api/analyze is 404 HTML (e.g., GitHub Pages export)
+        const isTrueStaticHosting =
+          res.status === 404 ||
+          (typeof window !== 'undefined' &&
+            (window.location.hostname.includes('github.io') ||
+              window.location.protocol === 'file:'));
+
+        if (isTrueStaticHosting) {
           const matchingSample = SAMPLE_PASSAGES.find(
             (s) => s.passage.trim() === passageText.trim()
           );
@@ -335,7 +341,7 @@ export default function App() {
           }
 
           setQuotaNotice(
-            'ℹ️ 정적 호스팅(GitHub Pages) 안내: Node.js 백엔드 서버가 구동되지 않는 정적 웹 환경에서는 브라우저 내장 규칙 기반 엔진으로 즉시 분석됩니다. Gemini 3.1 AI 실시간 분석을 사용하려면 로컬(npm run dev) 또는 클라우드 서버에서 실행해 주세요.'
+            'ℹ️ 정적 호스팅(GitHub Pages) 모드: 백엔드 서버가 없는 정적 웹 호스팅 환경에서는 내장 정밀 규칙 분석 엔진으로 동작합니다. 실시간 Gemini AI 분석을 사용하시려면 AI Studio 또는 로컬/클라우드 서버에서 실행해 주세요.'
           );
           return;
         }
