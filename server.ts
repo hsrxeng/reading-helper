@@ -968,29 +968,13 @@ function generateRuleBasedAnalysis(
 }
 
 async function startServer() {
-  // Vite middleware for development with appType: 'custom' & transformIndexHtml
+  // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: 'custom',
+      appType: 'spa',
     });
     app.use(vite.middlewares);
-
-    app.get('*', async (req, res, next) => {
-      if (req.originalUrl.startsWith('/api')) {
-        return next();
-      }
-      try {
-        const url = req.originalUrl;
-        const htmlPath = path.resolve(process.cwd(), 'index.html');
-        let template = fs.readFileSync(htmlPath, 'utf-8');
-        template = await vite.transformIndexHtml(url, template);
-        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
-      } catch (e: any) {
-        vite.ssrFixStacktrace(e);
-        next(e);
-      }
-    });
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
