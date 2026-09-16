@@ -13,6 +13,7 @@ import { SAMPLE_PASSAGES, SamplePassage } from './data/samplePassages';
 import { generateClientRuleBasedAnalysis } from './utils/clientFallbackAnalyzer';
 import {
   PassageAnalysisResult,
+  SentenceAnalysis,
   DisplaySettingsState,
   HistoryItem,
   AnalysisMode,
@@ -240,6 +241,21 @@ export default function App() {
         return updated;
       }
     });
+  };
+
+  // Update a single sentence analysis result (manual correction by teacher/user)
+  const handleUpdateSentence = (updatedSentence: SentenceAnalysis) => {
+    setAnalysisResult((prev) => {
+      if (!prev) return prev;
+      const newSentences = prev.sentences.map((s) =>
+        s.sentenceNumber === updatedSentence.sentenceNumber ? updatedSentence : s
+      );
+      return {
+        ...prev,
+        sentences: newSentences,
+      };
+    });
+    showToast(`[문장 ${updatedSentence.sentenceNumber}] 분석 내용이 성공적으로 수정되었습니다.`);
   };
 
   // Switch between 'general' and 'suneung' mode
@@ -866,6 +882,7 @@ export default function App() {
                     settings={displaySettings}
                     isClueSentence={isClue}
                     gradeLevel={analysisResult.difficulty || analysisResult.gradeLevel || gradeLevel}
+                    onUpdateSentence={handleUpdateSentence}
                   />
                 );
               })}

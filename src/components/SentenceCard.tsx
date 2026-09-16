@@ -12,10 +12,12 @@ import {
   ChevronUp,
   Lightbulb,
   AlertCircle,
+  Edit3,
 } from 'lucide-react';
 import { SentenceAnalysis, DisplaySettingsState, SyntaxToken } from '../types';
 import { getTokenPosStyle, detectPos, detectVocabPos, POS_CONFIG } from '../utils/posHelper';
 import { getGrammarGist } from '../utils/grammarGistHelper';
+import { SentenceEditModal } from './SentenceEditModal';
 
 interface SentenceCardProps {
   sentence: SentenceAnalysis;
@@ -23,6 +25,7 @@ interface SentenceCardProps {
   settings: DisplaySettingsState;
   isClueSentence?: boolean;
   gradeLevel?: string;
+  onUpdateSentence?: (updated: SentenceAnalysis) => void;
 }
 
 export const SentenceCard: React.FC<SentenceCardProps> = ({
@@ -31,10 +34,12 @@ export const SentenceCard: React.FC<SentenceCardProps> = ({
   settings,
   isClueSentence = false,
   gradeLevel,
+  onUpdateSentence,
 }) => {
   const isBeginner = gradeLevel?.includes('초급') || gradeLevel === '고1';
   const [isPlayingAudio, setIsPlayingAudio] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
   // Track which grammar point gist cards are expanded by index
   const [expandedGists, setExpandedGists] = React.useState<Record<number, boolean>>({});
 
@@ -193,6 +198,18 @@ export const SentenceCard: React.FC<SentenceCardProps> = ({
 
         {/* Action icons */}
         <div className="flex items-center gap-1.5 no-print">
+          {onUpdateSentence && (
+            <button
+              type="button"
+              onClick={() => setIsEditModalOpen(true)}
+              className="p-1.5 rounded-lg border bg-white dark:bg-slate-800 border-indigo-200 dark:border-indigo-800/80 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              title="문장 성분/해석/어휘 직접 수정"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">직접 수정</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handlePlayAudio}
@@ -536,6 +553,18 @@ export const SentenceCard: React.FC<SentenceCardProps> = ({
           </div>
         )}
       </div>
+
+      {/* Direct Sentence Correction Modal */}
+      {onUpdateSentence && (
+        <SentenceEditModal
+          sentence={sentence}
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          onSave={(updated) => {
+            onUpdateSentence(updated);
+          }}
+        />
+      )}
     </article>
   );
 };
