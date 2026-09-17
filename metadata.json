@@ -1,6 +1,6 @@
 {
   "name": "영어 지문 분석기",
   "description": "영어 지문의 문장 성분(S, V, O, C, M) 분석, 끊어 읽기 직독직해, 자연스러운 완역 및 문법 분석기",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

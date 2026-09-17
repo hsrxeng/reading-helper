@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import {
   Sparkles,
   RefreshCw,
@@ -13,6 +13,11 @@ import {
   Layers,
   HelpCircle,
   PenTool,
+  Camera,
+  Image as ImageIcon,
+  CheckCircle2,
+  X,
+  UploadCloud,
 } from 'lucide-react';
 import { SAMPLE_PASSAGES, SamplePassage } from '../data/samplePassages';
 import { AnalysisMode } from '../types';
@@ -90,6 +95,88 @@ export const PassageInput: React.FC<PassageInputProps> = ({
   const isOverRecommended = charCount > MAX_RECOMMENDED_CHARS;
 
   const circledNumbers = ['①', '②', '③', '④', '⑤'];
+
+  // OCR and Photo upload states for Passage input
+  const [isOcrLoading, setIsOcrLoading] = useState(false);
+  const [ocrError, setOcrError] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageFile = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setOcrError('이미지 파일(JPG, PNG, WebP 등)만 지원됩니다.');
+      return;
+    }
+
+    if (file.size > 12 * 1024 * 1024) {
+      setOcrError('이미지 용량은 12MB 이하만 지원됩니다.');
+      return;
+    }
+
+    setOcrError(null);
+    setIsOcrLoading(true);
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64Data = reader.result as string;
+      setPreviewImage(base64Data);
+
+      try {
+        const res = await fetch('/api/ocr-extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: base64Data,
+            mimeType: file.type || 'image/jpeg',
+          }),
+        });
+
+        const json = await res.json();
+        if (!res.ok) {
+          throw new Error(json.error || '사진에서 지문 텍스트를 인식하지 못했습니다.');
+        }
+
+        if (json.data) {
+          onOcrSuccess(json.data);
+        }
+      } catch (err: any) {
+        setOcrError(err.message || '사진 속 영어 지문을 추출하는 중 오류가 발생했습니다.');
+      } finally {
+        setIsOcrLoading(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleCameraChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleImageFile(file);
+    if (e.target) e.target.value = '';
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleImageFile(file);
+    if (e.target) e.target.value = '';
+  };
+
+  const handleTextareaPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          const file = items[i].getAsFile();
+          if (file) {
+            e.preventDefault();
+            handleImageFile(file);
+            return;
+          }
+        }
+      }
+    }
+  };
 
   const handleChoiceChange = (idx: number, value: string) => {
     setChoices((prev) => {
@@ -344,8 +431,40 @@ export const PassageInput: React.FC<PassageInputProps> = ({
         </div>
       )}
 
-      {/* Passage Textarea */}
-      <div className="relative">
+      {/* Passage Textarea & Photo OCR Section */}
+      <div
+        className="relative"
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDraggingOver(true);
+        }}
+        onDragLeave={() => setIsDraggingOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setIsDraggingOver(false);
+          const files = e.dataTransfer.files;
+          if (files && files.length > 0) {
+            handleImageFile(files[0]);
+          }
+        }}
+      >
+        {/* Hidden inputs for camera capture & file upload */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={handleCameraChange}
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFileInputChange}
+        />
+
         {/* Full Exam Detected Quick Split Banner */}
         {isFullExamPasted && (
           <div className="mb-2.5 p-3 bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 dark:from-emerald-950/50 dark:via-teal-950/40 dark:to-indigo-950/50 border border-emerald-300/80 dark:border-emerald-700/80 rounded-xl flex items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
@@ -369,32 +488,160 @@ export const PassageInput: React.FC<PassageInputProps> = ({
           </div>
         )}
 
-        <div className="flex items-center justify-between mb-1.5">
+        {/* Header row: Label + Action Buttons (Camera / Photo Upload / Clear) */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
           <label
             htmlFor="passage-textarea"
-            className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1"
+            className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 flex-wrap"
           >
             <FileText className="w-3.5 h-3.5 text-indigo-500" />
             <span>영어 본문 지문 (Passage):</span>
+            <span className="text-[11px] font-normal text-slate-400 hidden sm:inline">
+              (붙여넣기, 카메라 촬영, 사진 업로드 지원)
+            </span>
           </label>
-          {passageText && (
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* 1. Camera Shoot Button */}
+            <button
+              id="passage-camera-btn"
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              disabled={isOcrLoading}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 hover:bg-indigo-100 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 border border-indigo-200/90 dark:border-indigo-800 rounded-lg transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+              title="스마트폰 카메라 또는 웹캠으로 교재나 시험지 사진 바로 찍기"
+            >
+              <Camera className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>사진 찍기</span>
+            </button>
+
+            {/* 2. Photo Gallery / File Upload Button */}
+            <button
+              id="passage-image-upload-btn"
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isOcrLoading}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-700 rounded-lg transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+              title="기기에 저장된 사진/스크린샷 이미지 파일 불러오기"
+            >
+              <ImageIcon className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+              <span>사진 불러오기</span>
+            </button>
+
+            {passageText && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClear();
+                  setPreviewImage(null);
+                  setOcrError(null);
+                }}
+                className="text-xs text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer ml-1"
+              >
+                지문 지우기
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* OCR Loading Banner */}
+        {isOcrLoading && (
+          <div className="mb-3 p-3 bg-indigo-50/90 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 rounded-xl flex items-center gap-3 text-xs text-indigo-950 dark:text-indigo-200 animate-pulse shadow-xs">
+            <RefreshCw className="w-5 h-5 text-indigo-600 dark:text-indigo-400 animate-spin shrink-0" />
+            <div className="flex-1">
+              <p className="font-bold flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>AI 시각 엔진이 사진 속 영어 지문을 정밀 분석하여 추출 중입니다...</span>
+              </p>
+              <p className="text-[11px] text-indigo-700 dark:text-indigo-300 mt-0.5">
+                줄바꿈, 단어 철자, 문장부호를 원문 그대로 텍스트로 변환하고 있습니다. 잠시만 기다려 주세요!
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* OCR Photo Preview Card (when photo is uploaded) */}
+        {previewImage && !isOcrLoading && (
+          <div className="mb-3 p-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-between gap-3 text-xs animate-in fade-in duration-200">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <img
+                src={previewImage}
+                alt="업로드된 사진 미리보기"
+                referrerPolicy="no-referrer"
+                className="w-10 h-10 object-cover rounded-lg border border-slate-200 dark:border-slate-700 shrink-0 shadow-2xs"
+              />
+              <div className="min-w-0">
+                <span className="inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>사진 지문 추출 완료</span>
+                </span>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                  인식된 텍스트가 아래 본문 칸에 자동 입력되었습니다. 필요시 수정하실 수 있습니다.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                className="px-2 py-1 text-[11px] font-semibold bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-md transition-all cursor-pointer"
+              >
+                다시 찍기
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewImage(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-md transition-all cursor-pointer"
+                title="사진 미리보기 닫기"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* OCR Error Notice */}
+        {ocrError && (
+          <div className="mb-3 p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-200 animate-in fade-in duration-200">
+            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-bold">사진 지문 인식 중 오류가 발생했습니다</p>
+              <p className="text-[11px] mt-0.5">{ocrError}</p>
+            </div>
             <button
               type="button"
-              onClick={onClear}
-              className="text-xs text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer"
+              onClick={() => setOcrError(null)}
+              className="text-rose-500 hover:text-rose-700 dark:hover:text-rose-300 p-1 cursor-pointer"
             >
-              지문 지우기
+              <X className="w-3.5 h-3.5" />
             </button>
+          </div>
+        )}
+
+        {/* Textarea container with Drag-and-drop indicator */}
+        <div className="relative">
+          {isDraggingOver && (
+            <div className="absolute inset-0 z-20 bg-indigo-600/90 text-white rounded-xl flex flex-col items-center justify-center gap-2 p-4 text-center backdrop-blur-xs animate-in fade-in duration-150">
+              <UploadCloud className="w-8 h-8 animate-bounce" />
+              <p className="text-sm font-bold">여기에 교재나 시험지 사진을 떨어뜨리세요!</p>
+              <p className="text-xs opacity-90">AI가 사진 속 영어 지문을 즉시 텍스트로 변환합니다.</p>
+            </div>
           )}
+
+          <textarea
+            id="passage-textarea"
+            value={passageText}
+            onChange={(e) => setPassageText(e.target.value)}
+            onPaste={handleTextareaPaste}
+            placeholder={`분석할 영어 지문을 여기에 붙여넣거나, 상단의 [사진 찍기] / [사진 불러오기]를 눌러 교재·시험지 사진을 바로 텍스트로 변환하세요...\n(클립보드 스크린샷 캡처 이미지 Ctrl+V 붙여넣기 및 파일 드래그앤드롭도 지원합니다)\n\n예: Popeye, who gained superhuman strength and defended himself by eating spinach, contributed greatly to its endurance in popular culture...`}
+            className={`w-full min-h-[140px] max-h-[320px] p-4 text-sm sm:text-base text-slate-900 dark:text-slate-100 bg-slate-50/50 dark:bg-slate-950/60 border rounded-xl focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-serif leading-relaxed transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 ${
+              isDraggingOver
+                ? 'border-dashed border-2 border-indigo-500 ring-2 ring-indigo-500/20'
+                : 'border-slate-200 dark:border-slate-700'
+            }`}
+            rows={5}
+          />
         </div>
-        <textarea
-          id="passage-textarea"
-          value={passageText}
-          onChange={(e) => setPassageText(e.target.value)}
-          placeholder={`분석할 영어 지문을 여기에 붙여넣으세요 (교과서, 모의고사, 부교재, 수능특강, 영문 기사 등)...\n\n예: Popeye, who gained superhuman strength and defended himself by eating spinach, contributed greatly to its endurance in popular culture...`}
-          className="w-full min-h-[140px] max-h-[320px] p-4 text-sm sm:text-base text-slate-900 dark:text-slate-100 bg-slate-50/50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-700 rounded-xl focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-serif leading-relaxed transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500"
-          rows={5}
-        />
       </div>
 
       {/* Suneung or Naesin 5 Choices (① ~ ⑤) */}
