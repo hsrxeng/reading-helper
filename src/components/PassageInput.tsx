@@ -10,12 +10,13 @@ import {
   Bookmark,
   Target,
   FileUp,
-  SlidersHorizontal,
   Layers,
   HelpCircle,
+  PenTool,
 } from 'lucide-react';
 import { SAMPLE_PASSAGES, SamplePassage } from '../data/samplePassages';
 import { AnalysisMode } from '../types';
+import { NaesinInputSection } from './NaesinInputSection';
 
 interface PassageInputProps {
   mode: AnalysisMode;
@@ -28,6 +29,22 @@ interface PassageInputProps {
   setQuestionPrompt: (prompt: string) => void;
   choices: [string, string, string, string, string];
   setChoices: React.Dispatch<React.SetStateAction<[string, string, string, string, string]>>;
+  // Naesin specific props
+  questionTitle: string;
+  setQuestionTitle: (val: string) => void;
+  questionType: string;
+  setQuestionType: (val: string) => void;
+  studentAnswer: string;
+  setStudentAnswer: (val: string) => void;
+  correctAnswer: string;
+  setCorrectAnswer: (val: string) => void;
+  onOcrSuccess: (extracted: {
+    passage?: string;
+    questionPrompt?: string;
+    choices?: string[];
+    questionType?: string;
+    detectedStudentAnswer?: string;
+  }) => void;
   onOpenSmartImport: () => void;
   isLoading: boolean;
   onAnalyze: () => void;
@@ -50,6 +67,15 @@ export const PassageInput: React.FC<PassageInputProps> = ({
   setQuestionPrompt,
   choices,
   setChoices,
+  questionTitle,
+  setQuestionTitle,
+  questionType,
+  setQuestionType,
+  studentAnswer,
+  setStudentAnswer,
+  correctAnswer,
+  setCorrectAnswer,
+  onOcrSuccess,
   onOpenSmartImport,
   isLoading,
   onAnalyze,
@@ -74,12 +100,14 @@ export const PassageInput: React.FC<PassageInputProps> = ({
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm p-4 sm:p-6 no-print transition-colors">
-      {/* Mode Switch Header (일반 구문독해 ↔ 수능 실전 풀이 ON) */}
+      {/* Mode Switch Header (일반 구문독해 ↔ 모고 실전풀이 ↔ 내신 오답노트) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-4 border-b border-slate-100 dark:border-slate-800">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-bold text-slate-500 dark:text-slate-400">분석 모드:</span>
-          <div className="inline-flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700">
+          <div className="inline-flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700 gap-1 flex-wrap">
+            {/* 1. 일반 구문독해 */}
             <button
+              id="mode-tab-general"
               type="button"
               onClick={() => setMode('general')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
@@ -91,7 +119,10 @@ export const PassageInput: React.FC<PassageInputProps> = ({
               <Layers className="w-3.5 h-3.5" />
               <span>일반 구문독해</span>
             </button>
+
+            {/* 2. 모의고사 실전풀이 (수능에서 모고 실전풀이로 변경) */}
             <button
+              id="mode-tab-suneung"
               type="button"
               onClick={() => setMode('suneung')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
@@ -101,7 +132,25 @@ export const PassageInput: React.FC<PassageInputProps> = ({
               }`}
             >
               <Target className="w-3.5 h-3.5" />
-              <span>수능 실전 풀이 ON</span>
+              <span>모고 실전풀이</span>
+            </button>
+
+            {/* 3. 내신 오답노트 */}
+            <button
+              id="mode-tab-naesin"
+              type="button"
+              onClick={() => setMode('naesin')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                mode === 'naesin'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400'
+              }`}
+            >
+              <PenTool className="w-3.5 h-3.5" />
+              <span>내신 오답노트</span>
+              <span className="px-1 py-0.2 rounded-full text-[9px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200">
+                NEW
+              </span>
             </button>
           </div>
         </div>
@@ -110,6 +159,7 @@ export const PassageInput: React.FC<PassageInputProps> = ({
         <div className="flex items-center gap-2 flex-wrap">
           {onOpenSaved && (
             <button
+              id="open-saved-passages-btn"
               type="button"
               onClick={onOpenSaved}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg transition-all cursor-pointer"
@@ -223,7 +273,27 @@ export const PassageInput: React.FC<PassageInputProps> = ({
         </div>
       </div>
 
-      {/* Suneung Specific Inputs: Question Prompt */}
+      {/* Naesin Wrong Note Exclusive Section (OCR Upload, Student Answer, Correct Answer) */}
+      {mode === 'naesin' && (
+        <div className="mb-4">
+          <NaesinInputSection
+            questionTitle={questionTitle}
+            setQuestionTitle={setQuestionTitle}
+            questionType={questionType}
+            setQuestionType={setQuestionType}
+            questionPrompt={questionPrompt}
+            setQuestionPrompt={setQuestionPrompt}
+            studentAnswer={studentAnswer}
+            setStudentAnswer={setStudentAnswer}
+            correctAnswer={correctAnswer}
+            setCorrectAnswer={setCorrectAnswer}
+            onOcrSuccess={onOcrSuccess}
+            isLoading={isLoading}
+          />
+        </div>
+      )}
+
+      {/* Suneung (모의고사) Specific Inputs: Question Prompt */}
       {mode === 'suneung' && (
         <div className="mb-3.5 p-3.5 bg-amber-50/40 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-800/60 rounded-xl space-y-2 animate-in fade-in duration-200">
           <div className="flex items-center justify-between">
@@ -232,7 +302,7 @@ export const PassageInput: React.FC<PassageInputProps> = ({
               className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5"
             >
               <Target className="w-3.5 h-3.5 text-amber-600" />
-              <span>문제 발문 (Question Prompt):</span>
+              <span>모의고사 문제 발문 (Question Prompt):</span>
             </label>
             <span className="text-[11px] text-amber-700 dark:text-amber-400">
               예: 다음 글의 빈칸에 들어갈 말로 가장 적절한 것은?
@@ -279,39 +349,30 @@ export const PassageInput: React.FC<PassageInputProps> = ({
         />
       </div>
 
-      {/* Suneung Specific Inputs: 5 Choices (① ~ ⑤) */}
-      {mode === 'suneung' && (
+      {/* Suneung or Naesin 5 Choices (① ~ ⑤) */}
+      {(mode === 'suneung' || mode === 'naesin') && (
         <div className="mt-4 p-4 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl space-y-3 animate-in fade-in duration-200">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-              <SlidersHorizontal className="w-3.5 h-3.5 text-amber-500" />
-              <span>5지선다 선지 입력 (① ~ ⑤ Choices):</span>
-            </span>
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <span>5지선다 보기 입력 (선택사항, 객관식인 경우):</span>
+            </label>
             <span className="text-[11px] text-slate-400">
-              1번부터 5번까지 각각의 보기를 입력합니다.
+              선지를 입력하시면 각 선지별 소거 이유와 정답 근거를 심층 분석합니다.
             </span>
           </div>
 
           <div className="space-y-2">
-            {choices.map((choice, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold text-xs flex items-center justify-center shrink-0 border border-indigo-200/60 dark:border-indigo-800">
-                  {circledNumbers[i]}
+            {[0, 1, 2, 3, 4].map((idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center justify-center shrink-0">
+                  {circledNumbers[idx]}
                 </span>
                 <input
                   type="text"
-                  value={choice}
-                  onChange={(e) => handleChoiceChange(i, e.target.value)}
-                  placeholder={`선지 ${circledNumbers[i]} 내용 입력 (예: ${
-                    [
-                      'historical artifacts preserved by communities',
-                      'a dietary misconception caused by a calculation error',
-                      'the proven biological benefits of natural superfoods',
-                      'the technological advancement of food canning',
-                      'parental efforts to encourage creative dietary habits',
-                    ][i]
-                  })`}
-                  className="flex-1 px-3 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-serif"
+                  value={choices[idx]}
+                  onChange={(e) => handleChoiceChange(idx, e.target.value)}
+                  placeholder={`선지 ${idx + 1}번 내용 (영어/한국어 모두 가능)`}
+                  className="w-full px-3 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                 />
               </div>
             ))}
@@ -353,6 +414,8 @@ export const PassageInput: React.FC<PassageInputProps> = ({
             className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm text-white transition-all shadow-md cursor-pointer ${
               isLoading || !passageText.trim()
                 ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 dark:text-slate-500 cursor-not-allowed shadow-none'
+                : mode === 'naesin'
+                ? 'bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700 shadow-emerald-200 dark:shadow-none hover:shadow-lg active:scale-98'
                 : mode === 'suneung'
                 ? 'bg-amber-500 hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700 shadow-amber-200 dark:shadow-none hover:shadow-lg active:scale-98'
                 : 'bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 shadow-indigo-200 dark:shadow-none hover:shadow-lg active:scale-98'
@@ -362,17 +425,24 @@ export const PassageInput: React.FC<PassageInputProps> = ({
               <>
                 <RefreshCw className="w-4 h-4 animate-spin text-white" />
                 <span>
-                  {mode === 'suneung'
-                    ? '수능 실전 논리 및 구문 분석 중...'
+                  {mode === 'naesin'
+                    ? '내신 오답 원인 및 함정 분석 중...'
+                    : mode === 'suneung'
+                    ? '모의고사 실전 논리 및 구문 분석 중...'
                     : '문장 성분 & 직독직해 분석 중...'}
                 </span>
               </>
             ) : (
               <>
-                {mode === 'suneung' ? (
+                {mode === 'naesin' ? (
+                  <>
+                    <PenTool className="w-4 h-4 text-white" />
+                    <span>내신 오답 원인 및 함정 분석하기</span>
+                  </>
+                ) : mode === 'suneung' ? (
                   <>
                     <Target className="w-4 h-4 text-white" />
-                    <span>수능 실전 풀이 &amp; 구문 분석하기</span>
+                    <span>모의고사 실전 풀이 &amp; 구문 분석하기</span>
                   </>
                 ) : (
                   <>
@@ -392,7 +462,7 @@ export const PassageInput: React.FC<PassageInputProps> = ({
         <Info className="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0 mt-0.5" />
         <div className="space-y-0.5">
           <p className="text-slate-700 dark:text-slate-200 font-medium">
-            <strong>모드 안내:</strong> 기본 <strong>[일반 구문독해]</strong> 모드는 가볍고 빠른 문장 성분(S·V·O·C) 및 직독직해 분석을 제공하며, <strong>[수능 실전 풀이 ON]</strong> 모드는 발문과 5지선다를 바탕으로 정답 도출 논리, 전개도, 소거법, 패러프레이징 비교를 함께 제공합니다.
+            <strong>모드 안내:</strong> 기본 <strong>[일반 구문독해]</strong> 모드는 문장 성분(S·V·O·C) 및 직독직해를 분석하며, <strong>[모고 실전풀이]</strong> 모드는 정답 도출 논리/소거법/패러프레이징을 종합 분석하고, <strong>[내신 오답노트]</strong> 모드는 내가 고른 오답과 실제 정답을 심층 대조하여 출제자의 함정과 학생의 착각 원인을 날카롭게 분석합니다.
           </p>
         </div>
       </div>

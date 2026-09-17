@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   CheckCircle2,
   XCircle,
@@ -11,18 +11,23 @@ import {
   AlertTriangle,
   Lightbulb,
   Compass,
+  Edit3,
 } from 'lucide-react';
 import { SuneungAnalysis } from '../types';
+import { SuneungEditModal } from './SuneungEditModal';
 
 interface SuneungAnalysisViewProps {
   analysis: SuneungAnalysis;
   onScrollToSentence: (sentenceNumber: number) => void;
+  onUpdateSuneung?: (updated: SuneungAnalysis) => void;
 }
 
 export const SuneungAnalysisView: React.FC<SuneungAnalysisViewProps> = ({
   analysis,
   onScrollToSentence,
+  onUpdateSuneung,
 }) => {
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const {
     questionType,
     questionPrompt,
@@ -44,7 +49,7 @@ export const SuneungAnalysisView: React.FC<SuneungAnalysisViewProps> = ({
           <div className="flex items-center gap-2.5 flex-wrap">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500 text-white shadow-xs">
               <Target className="w-3.5 h-3.5" />
-              수능·모의고사 실전 풀이 분석
+              모의고사 실전 풀이 분석
             </span>
             {questionType && (
               <span className="px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
@@ -61,6 +66,18 @@ export const SuneungAnalysisView: React.FC<SuneungAnalysisViewProps> = ({
                 {circledNumbers[correctChoiceNumber - 1] || `${correctChoiceNumber}번`} 정답
               </span>
             </div>
+
+            {onUpdateSuneung && (
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(true)}
+                className="ml-1 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 text-amber-900 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-950/50 text-xs font-bold transition-all cursor-pointer shadow-xs"
+                title="정답 번호 및 해설 직접 수정"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                <span>정답/해설 수정</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -315,6 +332,16 @@ export const SuneungAnalysisView: React.FC<SuneungAnalysisViewProps> = ({
             ))}
           </div>
         </div>
+      )}
+
+      {/* Suneung Direct Edit Modal */}
+      {onUpdateSuneung && (
+        <SuneungEditModal
+          analysis={analysis}
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          onSave={(updated) => onUpdateSuneung(updated)}
+        />
       )}
     </div>
   );

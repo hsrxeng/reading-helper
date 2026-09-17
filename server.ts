@@ -185,6 +185,89 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// High-accuracy OCR & Exam parsing endpoint using Gemini Vision
+app.post('/api/ocr-extract', async (req, res) => {
+  try {
+    const { imageBase64, mimeType = 'image/jpeg' } = req.body;
+    if (!imageBase64) {
+      return res.status(400).json({ error: '분석할 시험지 이미지(Base64)가 필요합니다.' });
+    }
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      return res.status(500).json({
+        error: 'OCR 사진 인식을 위해 GEMINI_API_KEY가 필요합니다. Settings에서 설정해 주세요.',
+      });
+    }
+
+    const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+
+    const modelsToTry = [
+      'gemini-2.5-flash',
+      'gemini-3.8-flash',
+      'gemini-2.5-pro',
+    ];
+
+    let extractedData: any = null;
+    let lastError: any = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: mimeType || 'image/jpeg',
+                    data: cleanBase64,
+                  },
+                },
+                {
+                  text: `이 시험지/교재 사진에서 고등학교 영어 문제 내용을 정밀하게 추출하여 반드시 아래 JSON 형식으로만 반환해 주세요.
+Markdown 코드 블록이나 기타 주석 없이 순수 JSON만 반환하세요:
+{
+  "passage": "영어 지문 본문 전체 (문장부호 유지)",
+  "questionPrompt": "문제 발문 (예: 다음 글의 밑줄 친 부분 중 어법상 틀린 것은? 또는 서술형 문항 조건 등)",
+  "choices": ["1번 선지", "2번 선지", "3번 선지", "4번 선지", "5번 선지 (선지가 없는 서술형이면 빈 배열)"],
+  "questionType": "추정 문항 유형 (예: 어법상 틀린 것, 낱말의 쓰임, 빈칸추론, 서술형 조건영작 등)",
+  "detectedStudentAnswer": "사진 속 학생의 손글씨나 체크 표시로 추정되는 답 (없으면 빈 문자열)"
+}`,
+                },
+              ],
+            },
+          ],
+        });
+
+        const rawText = response.text || '';
+        if (rawText) {
+          extractedData = extractAndParseJSON(rawText);
+          break;
+        }
+      } catch (err) {
+        lastError = err;
+        console.warn(`OCR attempt with model ${modelName} failed:`, err);
+      }
+    }
+
+    if (!extractedData) {
+      throw lastError || new Error('이미지 텍스트 인식에 실패했습니다.');
+    }
+
+    res.json({
+      success: true,
+      data: extractedData,
+    });
+  } catch (err: any) {
+    console.error('OCR error:', err);
+    res.status(500).json({
+      error: err.message || '사진 속 지문/문제를 인식하는 중 오류가 발생했습니다.',
+    });
+  }
+});
+
 function normalizeLevel(level?: string): '초급자' | '중급자' | '상급자' {
   if (!level) return '중급자';
   if (level.includes('초급') || level === '고1') return '초급자';
@@ -201,6 +284,9 @@ app.post('/api/analyze', async (req, res) => {
       mode = 'general',
       questionPrompt = '',
       choices = [],
+      studentAnswer = '',
+      correctAnswer = '',
+      questionType = '',
     } = req.body;
 
     if (!passage || typeof passage !== 'string' || !passage.trim()) {
@@ -214,7 +300,7 @@ app.post('/api/analyze', async (req, res) => {
     const ai = getGeminiClient();
     if (!ai) {
       // Fallback rule-based analyzer when API key is missing
-      const fallbackData = generateRuleBasedAnalysis(passage, targetLevel, mode, questionPrompt, choices);
+      const fallbackData = generateRuleBasedAnalysis(passage, targetLevel, mode, questionPrompt, choices, studentAnswer, correctAnswer);
       return res.json({
         success: true,
         data: fallbackData,
@@ -224,6 +310,7 @@ app.post('/api/analyze', async (req, res) => {
     }
 
     const isSuneung = mode === 'suneung';
+    const isNaesin = mode === 'naesin';
 
     let levelSpecificInstruction = '';
     if (targetLevel === '초급자') {
@@ -312,18 +399,23 @@ ${levelSpecificInstruction}
     if (isSuneung) {
       systemInstruction += `
 
-[수능 실전 풀이 분석 (suneungAnalysis) 필수 스키마]:
-본 요청은 수능 실전 모드이므로, 최상위 JSON 객체 안에 "suneungAnalysis" 객체를 반드시 포함해야 합니다:
+[수능·모의고사 실전 풀이 분석 (suneungAnalysis) 필수 스키마 및 정밀 판별 원칙]:
+★ 중요: '글의 흐름과 관계 없는 문장 찾기 (전체 흐름과 무관한 문장)' 유형인 경우:
+1. 반드시 전체 글의 핵심 주제(화제)를 먼저 명확히 정의하고, 5개 문장/선지 중 "소재는 일부 겹치지만 주제의 방향성이나 논리적 인과 흐름에서 명백히 벗어나거나, 본문에 없는 엉뚱한 내용/사실을 서술한 문장"을 정확하게 정답(무관한 문장)으로 판별할 것.
+2. 1번 문장은 보통 글의 도입부로서 중심 화제를 세팅하는 경우가 대부분이므로, 특별한 이유 없이 1번을 정답으로 섣불리 오판하지 말고, 3번/4번/5번 선지 등 문맥을 단절시키는 이질적인 문장을 끝까지 면밀히 검증할 것.
+3. 문제 발문에 명시된 번호나 선지 번호(①~⑤)를 철저히 대조하여 correctChoiceNumber를 1~5 정수로 정확하게 지정할 것.
+
+본 요청은 모의고사 실전 모드이므로, 최상위 JSON 객체 안에 "suneungAnalysis" 객체를 반드시 포함해야 합니다:
 {
-  "title": "${gradeLevel} 수능·모의고사 실전 풀이 및 정밀 구문분석",
+  "title": "${gradeLevel} 모의고사 실전 풀이 및 정밀 구문분석",
   "gradeLevel": "${gradeLevel}",
   "mode": "suneung",
   "summary": "지문 핵심 요약",
   "suneungAnalysis": {
-    "questionType": "문제 유형 (예: '빈칸추론 (3점)', '글의 제목', '주제 파악', '문장 삽입', '글의 순서' 등)",
+    "questionType": "문제 유형 (예: '글의 흐름과 관계 없는 문장 찾기', '빈칸추론 (3점)', '글의 제목', '주제 파악', '문장 삽입', '글의 순서' 등)",
     "questionPrompt": "문제 발문",
     "correctChoiceNumber": 정답 선지 번호 (1~5 정수),
-    "clueSentenceNumbers": [정답 도출의 핵심 단서가 된 본문 속 문장 번호들 (예: [1, 2])],
+    "clueSentenceNumbers": [정답 도출의 핵심 단서가 된 본문 속 문장 번호들 (예: [5])],
     "coreLogicSummary": "정답 도출 핵심 논리 1~2줄 요약 (출제 의도 및 정답 결정 사유)",
     "passageFlow": {
       "topicIntro": "도입: 중심 화제 및 배경 제시",
@@ -336,7 +428,7 @@ ${levelSpecificInstruction}
         "number": 1,
         "text": "선지 1번 내용",
         "isCorrect": false,
-        "analysis": "오답 이유 (예: '오답(본문 무관): 본문에서 다루지 않은 엉뚱한 정보')"
+        "analysis": "선지 분석 (정답인 경우 무관한 이유, 오답인 경우 글의 자연스러운 흐름에 부합하는 이유)"
       },
       ...5번까지 5개 모두 포함. 정답 선지는 isCorrect: true 및 정답 이유 명시
     ],
@@ -346,6 +438,43 @@ ${levelSpecificInstruction}
         "choiceExpr": "정답 선지의 재진술(Paraphrase) 표현"
       }
     ]
+  },
+  "sentences": [ ...각 문장 분석 배열... ]
+}`;
+    } else if (isNaesin) {
+      systemInstruction += `
+
+[내신 오답노트 심층 분석 (naesinAnalysis) 필수 스키마 및 분석 지침]:
+본 요청은 학교 내신 시험 오답노트 분석 모드입니다. 학생이 고른 오답과 실제 정답을 심층 비교하고, 출제자의 내신 변형 함정과 학생의 착각 원인을 날카롭고 친절하게 분석해 주어야 합니다.
+최상위 JSON 객체 안에 "naesinAnalysis" 객체를 반드시 포함해야 합니다:
+{
+  "title": "${gradeLevel} 내신 기출 오답 원인 및 함정 정밀 분석",
+  "gradeLevel": "${gradeLevel}",
+  "mode": "naesin",
+  "summary": "지문 핵심 요약",
+  "naesinAnalysis": {
+    "questionTitle": "내신 시험 문제 번호 또는 제목",
+    "questionType": "내신 변형 유형 (예: 원문 어휘 변형, 어법 고치기, 문장 삽입 변형, 서술형 조건영작 등)",
+    "questionPrompt": "문제 발문",
+    "studentAnswer": "${studentAnswer || '학생 선택 오답'}",
+    "correctAnswer": "${correctAnswer || '실제 정답'}",
+    "wrongReasonAnalysis": {
+      "psychologicalTrap": "학생이 왜 이 오답에 끌려서 골랐는지 심리 및 착각 원인 역추적 (예: '본문에서 익숙하게 보았던 Whakapapa라는 단어만 보고 앞뒤 인과관계를 놓쳐 1번을 정답으로 착각함')",
+      "schoolExamTrapType": "학교 내신 시험 특유의 함정 유형 (예: '원문 어휘 반의어 치환 함정', '부정어(barely, seldom) 삽입 반대 해석 유도', '수일치 착시 현상')",
+      "detailedComparison": "정답과 오답의 결정적 차이점 1:1 대조 설명 (왜 오답은 안 되고, 정답만 성립하는지 명백한 근거 서술)"
+    },
+    "clueSentenceInPassage": {
+      "sentenceNumber": 정답의 결정적 근거가 되는 본문 속 문장 번호 (정수),
+      "sentenceText": "해당 문장 영어 원문",
+      "explanation": "이 문장이 정답을 가르는 결정적 근거가 되는 이유"
+    },
+    "originalVsModified": {
+      "originalText": "원문/교과서 표현",
+      "modifiedText": "내신 시험에서 변형된 표현 (지문 변형이 감지된 경우)",
+      "point": "내신 출제자의 변형 포인트 해설"
+    },
+    "actionItemForNextExam": "다음 내신 시험에서 동일한 실수를 방지하기 위한 학생 맞춤형 실전 대비 행동 강령 (2~3줄)",
+    "relatedGrammarOrVocab": ["꼭 암기해야 할 내신 필수 어휘/숙어/문법 포인트 3~5개"]
   },
   "sentences": [ ...각 문장 분석 배열... ]
 }`;
@@ -361,13 +490,30 @@ ${levelSpecificInstruction}
         ? choices.map((c: string, idx: number) => `(${idx + 1}) ${c || '(미입력)'}`).join('\n')
         : '(사용자가 선지를 직접 입력하지 않았으므로 지문 내용을 바탕으로 5지선다 보기와 정답을 추론하여 분석하세요)';
 
-      prompt = `[분석 모드]: 수능·모의고사 실전 풀이 분석 모드
+      prompt = `[분석 모드]: 모의고사 실전 풀이 분석 모드
 [분석 대상 학년]: ${gradeLevel}
 [문제 발문]: ${questionPrompt.trim() || '다음 글의 빈칸에 들어갈 말로 가장 적절한 것은?'}
 [5지선다 선지 (①~⑤)]:
 ${cleanChoices}
 [분석 대상 영어 지문]:
 ${passage.trim()}`;
+    } else if (isNaesin) {
+      const cleanChoices = Array.isArray(choices) && choices.length > 0
+        ? choices.map((c: string, idx: number) => `(${idx + 1}) ${c || '(미입력)'}`).join('\n')
+        : '(선지 정보 없음)';
+
+      prompt = `[분석 모드]: 고교 내신 시험 오답노트 정밀 분석 모드
+[분석 대상 학년]: ${gradeLevel}
+[내신 문항 유형/제목]: ${questionType || '내신 기출 변형 문항'}
+[문제 발문 및 조건]: ${questionPrompt.trim() || '다음 글을 읽고 물음에 답하시오.'}
+[5지선다 선지 또는 선택지]:
+${cleanChoices}
+[★ 학생이 선택한 오답]: ${studentAnswer || '(미지정)'}
+[★ 실제 정답(모범답안)]: ${correctAnswer || '(미지정)'}
+[분석 대상 영어 지문]:
+${passage.trim()}
+
+위 학생의 오답과 정답, 그리고 지문 본문을 철저히 대조하여 학생이 왜 그 오답을 골랐는지 심리적 착각 원인, 학교 내신 출제자의 변형 함정, 결정적 차이점을 친절하고 통찰력 있게 분석해 주세요.`;
     } else {
       prompt = `[분석 대상 학년]: ${gradeLevel}
 [분석 대상 지문]:
@@ -375,10 +521,16 @@ ${passage.trim()}`;
     }
 
     // Valid active models supported by @google/genai SDK
-    // Order: gemini-3.8-flash (official primary) -> gemini-3.1-flash-lite -> gemini-flash-latest
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    // Place gemini-2.5-flash first to avoid 3.8 daily quota saturation
+    const modelsToTry = [
+      'gemini-2.5-flash',
+      'gemini-3.8-flash',
+      'gemini-3.1-flash-lite',
+      'gemini-2.5-pro',
+    ];
     let responseText = '';
     let hitQuotaError = false;
+    let hitOverloadError = false;
 
     modelLoop: for (let mIdx = 0; mIdx < modelsToTry.length; mIdx++) {
       const modelName = modelsToTry[mIdx];
@@ -410,14 +562,30 @@ ${passage.trim()}`;
           if (isQuota) {
             hitQuotaError = true;
           }
+          if (isOverload) {
+            hitOverloadError = true;
+          }
           console.warn(
             `Model ${modelName} attempt ${attempt + 1} failed (quota: ${isQuota}, overload: ${isOverload}):`,
             modelErr?.status || modelErr?.message || modelErr
           );
 
-          // If server is overloaded (503/504) or model not found (404), switch to next model immediately
-          if (isOverload || modelErr?.status === 404) {
+          // If model not found (404), move to next model immediately
+          if (modelErr?.status === 404) {
             break;
+          }
+
+          // If server is overloaded (503/504), wait a brief jitter delay (800ms) before trying next attempt or model
+          if (isOverload) {
+            if (attempt < maxRetries) {
+              const overloadDelay = 800 * (attempt + 1);
+              console.log(`Retrying overloaded model ${modelName} in ${overloadDelay}ms...`);
+              await new Promise((resolve) => setTimeout(resolve, overloadDelay));
+              continue;
+            } else {
+              // Proceed to next fallback model
+              break;
+            }
           }
 
           // If quota exceeded and another fallback model exists, switch to next model immediately
@@ -439,14 +607,25 @@ ${passage.trim()}`;
 
     if (!responseText) {
       console.warn('AI models were temporarily unavailable after retries, generating rule-based fallback analysis...');
-      const fallbackData = generateRuleBasedAnalysis(passage, gradeLevel, mode, questionPrompt, choices);
+      const fallbackData = generateRuleBasedAnalysis(
+        passage,
+        gradeLevel,
+        mode,
+        questionPrompt,
+        choices,
+        studentAnswer,
+        correctAnswer
+      );
       return res.json({
         success: true,
         data: fallbackData,
         isFallback: true,
         quotaExceeded: hitQuotaError,
+        overload: hitOverloadError,
         notice: hitQuotaError
           ? 'Gemini API 할당량(429/분당 요청 한도)에 도달하여 규칙 기반 구문분석 엔진으로 즉시 생성되었습니다. 잠시 후 상단의 [AI로 다시 분석]을 누르시면 실시간 재시도됩니다.'
+          : hitOverloadError
+          ? 'Google AI 서버 일시적 과부하(503)로 인해 고등 영어 구문 규칙 기반 분석 엔진으로 즉시 생성되었습니다. 잠시 후 [AI로 다시 분석]을 누르시면 정상 처리됩니다.'
           : 'AI 서버 트래픽 지연으로 인해 고등 영어 구문 규칙 기반 분석 엔진으로 즉시 생성되었습니다.',
       });
     }
@@ -615,7 +794,7 @@ ${passage.trim()}`;
         .filter((p: any) => p.passageExpr && p.choiceExpr);
 
       normalizedData.suneungAnalysis = {
-        questionType: rawSa.questionType || '수능 독해 실전 유형',
+        questionType: rawSa.questionType || '모의고사 독해 실전 유형',
         questionPrompt: questionPrompt.trim() || rawSa.questionPrompt || '다음 글의 빈칸에 들어갈 말로 가장 적절한 것은?',
         correctChoiceNumber: correctNum,
         clueSentenceNumbers: clueNumbers.length > 0 ? clueNumbers : [1],
@@ -634,6 +813,38 @@ ${passage.trim()}`;
           }
         ],
       };
+    } else if (isNaesin) {
+      normalizedData.mode = 'naesin';
+      const rawNa = parsedResult?.naesinAnalysis || {};
+      const clueSentNum = Number(rawNa?.clueSentenceInPassage?.sentenceNumber) || 1;
+      const clueSentenceObj = normalizedData.sentences.find(s => s.sentenceNumber === clueSentNum) || normalizedData.sentences[0];
+
+      normalizedData.naesinAnalysis = {
+        questionTitle: rawNa.questionTitle || questionType || '내신 기출 변형 문제',
+        questionType: rawNa.questionType || questionType || '내신 빈출 변형 유형',
+        questionPrompt: questionPrompt.trim() || rawNa.questionPrompt || '다음 글을 읽고 물음에 답하시오.',
+        studentAnswer: studentAnswer || rawNa.studentAnswer || '학생 선택 오답',
+        correctAnswer: correctAnswer || rawNa.correctAnswer || '실제 정답',
+        wrongReasonAnalysis: {
+          psychologicalTrap: rawNa?.wrongReasonAnalysis?.psychologicalTrap || '본문의 친숙한 단어에 현혹되거나, 맥락 전체의 인과 흐름을 확인하지 않고 성급하게 선택한 전형적인 매력적 오답입니다.',
+          schoolExamTrapType: rawNa?.wrongReasonAnalysis?.schoolExamTrapType || '학교 내신 특유의 원문 어휘 변형 및 문맥적 반의어 치환 함정',
+          detailedComparison: rawNa?.wrongReasonAnalysis?.detailedComparison || '정답은 본문의 핵심 주제 및 인과 관계와 일치하는 반면, 선택한 오답은 지문의 부분적 소재만 차용했을 뿐 논리적으로 모순됩니다.',
+        },
+        clueSentenceInPassage: {
+          sentenceNumber: clueSentenceObj?.sentenceNumber || 1,
+          sentenceText: rawNa?.clueSentenceInPassage?.sentenceText || clueSentenceObj?.originalText || '',
+          explanation: rawNa?.clueSentenceInPassage?.explanation || '이 문장이 정답과 오답을 판별하는 결정적 단서 역할을 합니다.',
+        },
+        originalVsModified: rawNa.originalVsModified ? {
+          originalText: rawNa.originalVsModified.originalText || '',
+          modifiedText: rawNa.originalVsModified.modifiedText || '',
+          point: rawNa.originalVsModified.point || '',
+        } : undefined,
+        actionItemForNextExam: rawNa.actionItemForNextExam || '다음 내신 시험에서는 지문의 부분 단어에만 의존하지 말고, 전체 문장의 주어-동사 관계와 접속사의 논리적 방향을 끝까지 확인하는 습관을 들여야 합니다.',
+        relatedGrammarOrVocab: Array.isArray(rawNa.relatedGrammarOrVocab) && rawNa.relatedGrammarOrVocab.length > 0
+          ? rawNa.relatedGrammarOrVocab
+          : ['주어-동사 수일치', '문맥상 어휘의 반의어 확인', '접속사 및 연결사 논리 흐름'],
+      };
     } else {
       normalizedData.mode = 'general';
     }
@@ -651,9 +862,19 @@ ${passage.trim()}`;
         mode = 'general',
         questionPrompt = '',
         choices = [],
+        studentAnswer = '',
+        correctAnswer = '',
       } = req.body || {};
       if (passage && typeof passage === 'string') {
-        const fallbackData = generateRuleBasedAnalysis(passage, gradeLevel, mode, questionPrompt, choices);
+        const fallbackData = generateRuleBasedAnalysis(
+          passage,
+          gradeLevel,
+          mode,
+          questionPrompt,
+          choices,
+          studentAnswer,
+          correctAnswer
+        );
         return res.json({
           success: true,
           data: fallbackData,
@@ -678,7 +899,9 @@ function generateRuleBasedAnalysis(
   gradeLevel: string = '중급자',
   mode: string = 'general',
   questionPrompt: string = '',
-  choicesInput: string[] = []
+  choicesInput: string[] = [],
+  studentAnswer: string = '',
+  correctAnswer: string = ''
 ) {
   const targetLevel = normalizeLevel(gradeLevel);
   const safePassage = typeof passage === 'string' ? passage : String(passage || '');
@@ -961,6 +1184,28 @@ function generateRuleBasedAnalysis(
           choiceExpr: choices[correctChoiceNumber - 1]?.text?.slice(0, 30) || 'paraphrased expression',
         },
       ],
+    };
+  } else if (mode === 'naesin') {
+    result.mode = 'naesin';
+    result.title = `[${targetLevel}] 내신 기출 오답 원인 및 함정 정밀 분석`;
+    result.naesinAnalysis = {
+      questionTitle: '내신 기출 변형 문제',
+      questionType: '내신 빈출 변형 유형 (어휘/어법/문맥)',
+      questionPrompt: questionPrompt.trim() || '다음 글을 읽고 물음에 답하시오.',
+      studentAnswer: studentAnswer || '선택 오답',
+      correctAnswer: correctAnswer || '실제 정답',
+      wrongReasonAnalysis: {
+        psychologicalTrap: '본문의 친숙한 단어에 현혹되거나, 맥락 전체의 인과 흐름을 확인하지 않고 성급하게 선택한 전형적인 매력적 오답입니다.',
+        schoolExamTrapType: '학교 내신 특유의 원문 어휘 변형 및 문맥적 반의어 치환 함정',
+        detailedComparison: '정답은 본문의 핵심 주제 및 인과 관계와 일치하는 반면, 선택한 오답은 지문의 부분적 소재만 차용했을 뿐 논리적으로 모순됩니다.',
+      },
+      clueSentenceInPassage: {
+        sentenceNumber: 1,
+        sentenceText: sentences[0]?.originalText || '',
+        explanation: '이 문장이 정답과 오답을 판별하는 결정적 단서 역할을 합니다.',
+      },
+      actionItemForNextExam: '다음 내신 시험에서는 지문의 부분 단어에만 의존하지 말고, 전체 문장의 주어-동사 관계와 접속사의 논리적 방향을 끝까지 확인하는 습관을 들여야 합니다.',
+      relatedGrammarOrVocab: ['주어-동사 수일치', '문맥상 어휘의 반의어 확인', '접속사 및 연결사 논리 흐름'],
     };
   }
 

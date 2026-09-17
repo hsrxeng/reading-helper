@@ -55,7 +55,32 @@ export interface SuneungAnalysis {
   paraphrasePairs?: ParaphrasePair[]; // 재진술(Paraphrasing) 짝꿍
 }
 
-export type AnalysisMode = 'general' | 'suneung';
+export interface NaesinWrongNoteAnalysis {
+  questionTitle?: string; // 문제 제목 또는 번호
+  questionType?: string; // 내신 변형 유형 (예: 어휘 변형, 어법 고치기, 문장 삽입, 빈칸 변형, 서술형 조건영작 등)
+  questionPrompt?: string; // 발문
+  studentAnswer: string; // 학생이 선택한 오답 (예: '1번', '단어...')
+  correctAnswer: string; // 실제 정답 (예: '5번', '모범 답안...')
+  wrongReasonAnalysis: {
+    psychologicalTrap: string; // 학생이 왜 이 오답에 끌렸는지 심리/착각 분석 (매력적 오답의 함정)
+    schoolExamTrapType: string; // 학교 내신 시험 특유의 함정 유형 (예: "원문 단어 훼이크", "부정어(barely, seldom) 삽입 반대 해석", "품사 변형 함정")
+    detailedComparison: string; // 정답 vs 오답 1:1 결정적 차이점 비교 대조
+  };
+  clueSentenceInPassage: {
+    sentenceNumber?: number;
+    sentenceText: string;
+    explanation: string;
+  };
+  originalVsModified?: {
+    originalText: string; // 모의고사/교과서 원문
+    modifiedText: string; // 내신 시험에서 변형된 표현
+    point: string; // 변형 포인트
+  };
+  actionItemForNextExam: string; // 다음 내신 시험 대비 처방전 및 학습 전략 팁
+  relatedGrammarOrVocab?: string[]; // 함께 암기해야 할 내신 필수 어휘/문법
+}
+
+export type AnalysisMode = 'general' | 'suneung' | 'naesin';
 
 export type DifficultyLevel = '초급자' | '중급자' | '상급자';
 
@@ -67,6 +92,7 @@ export interface PassageAnalysisResult {
   sentences: SentenceAnalysis[];
   mode?: AnalysisMode;
   suneungAnalysis?: SuneungAnalysis;
+  naesinAnalysis?: NaesinWrongNoteAnalysis;
 }
 
 export type HighlightTarget = 'sv_only' | 'all';

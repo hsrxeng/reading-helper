@@ -17,7 +17,10 @@ export function generateClientRuleBasedAnalysis(
   gradeLevel: string = '중급자',
   mode: AnalysisMode = 'general',
   questionPrompt: string = '',
-  choicesInput: string[] = []
+  choicesInput: string[] = [],
+  studentAnswer: string = '',
+  correctAnswer: string = '',
+  questionType: string = ''
 ): PassageAnalysisResult {
   const targetLevel = normalizeLevel(gradeLevel);
   const safePassage = typeof passage === 'string' ? passage : String(passage || '');
@@ -297,6 +300,35 @@ export function generateClientRuleBasedAnalysis(
           choiceExpr: choices[correctChoiceNumber - 1]?.text?.slice(0, 30) || 'paraphrased expression',
         },
       ],
+    };
+  } else if (mode === 'naesin') {
+    const sAns = studentAnswer || '1번';
+    const cAns = correctAnswer || '5번';
+    const qT = questionType || '원문 어휘 변형 (반의어/유의어)';
+    const clueSentence = sentences[0] || { sentenceNumber: 1, originalText: passage.slice(0, 80) };
+
+    result.naesinAnalysis = {
+      questionPrompt: questionPrompt || '다음 글을 읽고 물음에 답하시오.',
+      questionType: qT,
+      studentAnswer: sAns,
+      correctAnswer: cAns,
+      clueSentenceInPassage: {
+        sentenceNumber: clueSentence.sentenceNumber || 1,
+        sentenceText: clueSentence.originalText || passage.slice(0, 80),
+        explanation: '정답과 오답을 판가름하는 결정적인 문맥적 단서가 들어있는 본문 핵심 문장입니다.',
+      },
+      wrongReasonAnalysis: {
+        psychologicalTrap: `학생이 [${sAns}]을(를) 선택하게 된 주된 심리적 요인은 본문 속 친숙한 단어 매칭에 이끌려 전체 문맥과 술어 관계를 놓쳤기 때문입니다.`,
+        schoolExamTrapType: '원문 키워드 함정 및 논리적 맥락 비틀기 (Contextual Reversal)',
+        detailedComparison: `학생이 선택한 [${sAns}]은(는) 지문의 일부 단어와 표면적으로 유사하지만 전체 맥락과 상충되며, 실제 정답인 [${cAns}]은(는) 지문의 핵심 문맥 및 논리적 인과관계를 충족하는 올바른 해답입니다.`,
+      },
+      originalVsModified: {
+        originalText: '지문 원문 표현 (Original Text Flow)',
+        modifiedText: '시험 문제 변형 선지/어구 (Exam Modification)',
+        point: '학교 시험에서는 원문의 단어를 그대로 내지 않고, 유의어로 치환하거나 전체 문장 구조를 전환하여 출제합니다.',
+      },
+      actionItemForNextExam: '다음 내신 시험에서는 지문에서 눈에 익은 단어가 보인다고 해서 즉시 정답으로 단정하지 말고, 반드시 해당 문장의 전체 술어 동사와 접속사(However, Although 등)의 방향을 끝까지 확인한 뒤 답을 고르는 습관을 훈련해야 합니다.',
+      relatedGrammarOrVocab: ['원문 변형 유의어/반의어 대조', '수일치 및 능동/수동태 확인', '접속사 전후의 논리적 순접/역접 확인'],
     };
   }
 

@@ -8,12 +8,15 @@ import { PrintModal } from './components/PrintModal';
 import { HistoryModal } from './components/HistoryModal';
 import { SmartExamImportModal } from './components/SmartExamImportModal';
 import { SuneungAnalysisView } from './components/SuneungAnalysisView';
+import { NaesinWrongNoteView } from './components/NaesinWrongNoteView';
 import { StyleComparisonPreview } from './components/StyleComparisonPreview';
 import { SAMPLE_PASSAGES, SamplePassage } from './data/samplePassages';
 import { generateClientRuleBasedAnalysis } from './utils/clientFallbackAnalyzer';
 import {
   PassageAnalysisResult,
   SentenceAnalysis,
+  SuneungAnalysis,
+  NaesinWrongNoteAnalysis,
   DisplaySettingsState,
   HistoryItem,
   AnalysisMode,
@@ -27,6 +30,7 @@ import {
   Check,
   RefreshCw,
   Target,
+  PenTool,
 } from 'lucide-react';
 
 const STORAGE_KEY_SETTINGS = 'syntax_analyzer_settings';
@@ -51,6 +55,12 @@ export default function App() {
       '',
     ]
   );
+  // Naesin specific state
+  const [questionTitle, setQuestionTitle] = useState('');
+  const [questionType, setQuestionType] = useState('원문 어휘 변형 (반의어/유의어)');
+  const [studentAnswer, setStudentAnswer] = useState('1번');
+  const [correctAnswer, setCorrectAnswer] = useState('5번');
+
   const [analysisResult, setAnalysisResult] = useState<PassageAnalysisResult | null>(
     defaultSample.presetAnalysis
   );
@@ -258,7 +268,19 @@ export default function App() {
     showToast(`[문장 ${updatedSentence.sentenceNumber}] 분석 내용이 성공적으로 수정되었습니다.`);
   };
 
-  // Switch between 'general' and 'suneung' mode
+  // Update suneung solution analysis (manual correction of correct choice or logic)
+  const handleUpdateSuneung = (updatedSuneung: SuneungAnalysis) => {
+    setAnalysisResult((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        suneungAnalysis: updatedSuneung,
+      };
+    });
+    showToast(`수능 실전 풀이 분석(정답: ${updatedSuneung.correctChoiceNumber}번)이 성공적으로 수정되었습니다.`);
+  };
+
+  // Switch between 'general', 'suneung', and 'naesin' mode
   const handleToggleMode = (newMode: AnalysisMode) => {
     setMode(newMode);
     if (newMode === 'suneung') {
@@ -284,10 +306,37 @@ export default function App() {
       } else if (!questionPrompt.trim()) {
         setQuestionPrompt('다음 글의 빈칸에 들어갈 말로 가장 적절한 것은?');
       }
-      showToast('수능·모의고사 실전 풀이 모드가 활성화되었습니다.');
+      showToast('모의고사 실전 풀이 모드가 활성화되었습니다.');
+    } else if (newMode === 'naesin') {
+      if (!questionPrompt.trim()) {
+        setQuestionPrompt('다음 글을 읽고 물음에 답하시오.');
+      }
+      showToast('내신 오답노트 & 함정 분석 모드가 활성화되었습니다.');
     } else {
       showToast('일반 구문독해 모드로 전환되었습니다.');
     }
+  };
+
+  // Callback when OCR extraction finishes
+  const handleOcrSuccess = (extracted: {
+    passage?: string;
+    questionPrompt?: string;
+    choices?: string[];
+    questionType?: string;
+    detectedStudentAnswer?: string;
+  }) => {
+    if (extracted.passage) setPassageText(extracted.passage);
+    if (extracted.questionPrompt) setQuestionPrompt(extracted.questionPrompt);
+    if (extracted.questionType) setQuestionType(extracted.questionType);
+    if (extracted.detectedStudentAnswer) setStudentAnswer(extracted.detectedStudentAnswer);
+    if (extracted.choices && extracted.choices.length > 0) {
+      const updatedChoices = ['', '', '', '', ''] as [string, string, string, string, string];
+      extracted.choices.slice(0, 5).forEach((c, i) => {
+        updatedChoices[i] = c;
+      });
+      setChoices(updatedChoices);
+    }
+    showToast('시험지 사진 속 지문과 문제가 성공적으로 자동 입력되었습니다.');
   };
 
   // Handle Analysis trigger with automatic quota retry
@@ -309,8 +358,11 @@ export default function App() {
           passage: passageText,
           gradeLevel,
           mode,
-          questionPrompt: mode === 'suneung' ? questionPrompt : undefined,
-          choices: mode === 'suneung' ? choices : undefined,
+          questionPrompt: mode !== 'general' ? questionPrompt : undefined,
+          choices: mode !== 'general' ? choices : undefined,
+          studentAnswer: mode === 'naesin' ? studentAnswer : undefined,
+          correctAnswer: mode === 'naesin' ? correctAnswer : undefined,
+          questionType: mode === 'naesin' ? questionType : undefined,
         }),
       });
 
@@ -351,7 +403,10 @@ export default function App() {
               gradeLevel,
               mode,
               questionPrompt,
-              choices
+              choices,
+              studentAnswer,
+              correctAnswer,
+              questionType
             );
             setAnalysisResult(fallbackResult);
           }
@@ -490,7 +545,10 @@ export default function App() {
             gradeLevel,
             mode,
             questionPrompt,
-            choices
+            choices,
+            studentAnswer,
+            correctAnswer,
+            questionType
           );
           setAnalysisResult(clientResult);
           setQuotaNotice(
@@ -565,7 +623,24 @@ export default function App() {
     setPassageText(item.originalPassage || item.previewText);
     setGradeLevel(item.gradeLevel);
     setAnalysisResult(item.data);
-    if (item.data?.suneungAnalysis) {
+    if (item.data?.naesinAnalysis) {
+      setMode('naesin');
+      if (item.data.naesinAnalysis.questionPrompt) {
+        setQuestionPrompt(item.data.naesinAnalysis.questionPrompt);
+      }
+      if (item.data.naesinAnalysis.questionTitle) {
+        setQuestionTitle(item.data.naesinAnalysis.questionTitle);
+      }
+      if (item.data.naesinAnalysis.questionType) {
+        setQuestionType(item.data.naesinAnalysis.questionType);
+      }
+      if (item.data.naesinAnalysis.studentAnswer) {
+        setStudentAnswer(item.data.naesinAnalysis.studentAnswer);
+      }
+      if (item.data.naesinAnalysis.correctAnswer) {
+        setCorrectAnswer(item.data.naesinAnalysis.correctAnswer);
+      }
+    } else if (item.data?.suneungAnalysis) {
       setMode('suneung');
       setQuestionPrompt(item.data.suneungAnalysis.questionPrompt);
       const reconstructedChoices = item.data.suneungAnalysis.choices.map(
@@ -574,6 +649,8 @@ export default function App() {
       if (reconstructedChoices.length === 5) {
         setChoices(reconstructedChoices);
       }
+    } else {
+      setMode('general');
     }
     setErrorMessage(null);
     setIsHistoryOpen(false);
@@ -623,23 +700,36 @@ export default function App() {
                 </span>
                 <span
                   className={`px-2 py-0.5 text-xs font-bold rounded-md flex items-center gap-1 ${
-                    mode === 'suneung'
+                    mode === 'naesin'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : mode === 'suneung'
                       ? 'bg-amber-500 text-white shadow-xs'
                       : 'bg-slate-700/60 text-slate-300'
                   }`}
                 >
-                  <Target className="w-3 h-3" />
-                  <span>
-                    {mode === 'suneung' ? '수능 실전 풀이 분석 ON' : '일반 구문독해'}
-                  </span>
+                  {mode === 'naesin' ? (
+                    <>
+                      <PenTool className="w-3 h-3" />
+                      <span>내신 오답노트 &amp; 함정 분석 ON</span>
+                    </>
+                  ) : mode === 'suneung' ? (
+                    <>
+                      <Target className="w-3 h-3" />
+                      <span>모의고사 실전 풀이 ON</span>
+                    </>
+                  ) : (
+                    <span>일반 구문독해</span>
+                  )}
                 </span>
               </div>
               <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
                 영어 지문 분석기
               </h2>
               <p className="text-xs sm:text-sm text-indigo-200/90 max-w-2xl leading-relaxed">
-                {mode === 'suneung'
-                  ? '수능 및 모의고사 문제의 발문과 5지선다를 분석하여 정답 도출 핵심 논리, 논리 전개도, 선지별 소거법 분석, 단서 문장 및 패러프레이징 비교를 제공합니다.'
+                {mode === 'naesin'
+                  ? '내신 문제 사진(OCR) 또는 지문을 올리고 내 오답과 정답을 입력하면, 출제자의 심리적 함정과 원문 변형 포인트를 파헤치고 다음 시험 대비 처방전을 제공합니다.'
+                  : mode === 'suneung'
+                  ? '모의고사 문제의 발문과 5지선다를 분석하여 정답 도출 핵심 논리, 논리 전개도, 선지별 소거법 분석, 단서 문장 및 패러프레이징 비교를 제공합니다.'
                   : '영어 지문을 입력하면 문장 성분(S, V, O, C, M)과 절 구조를 직관적으로 분석하고, 끊어 읽기 직독직해, 자연스러운 완역 및 핵심 문법을 제공합니다.'}
               </p>
             </div>
@@ -668,6 +758,15 @@ export default function App() {
           setQuestionPrompt={setQuestionPrompt}
           choices={choices}
           setChoices={setChoices}
+          questionTitle={questionTitle}
+          setQuestionTitle={setQuestionTitle}
+          questionType={questionType}
+          setQuestionType={setQuestionType}
+          studentAnswer={studentAnswer}
+          setStudentAnswer={setStudentAnswer}
+          correctAnswer={correctAnswer}
+          setCorrectAnswer={setCorrectAnswer}
+          onOcrSuccess={handleOcrSuccess}
           onOpenSmartImport={() => setIsSmartImportOpen(true)}
           isLoading={isLoading}
           onAnalyze={handleAnalyze}
@@ -754,10 +853,19 @@ export default function App() {
         {/* Analysis Results View */}
         {analysisResult && (
           <div className="space-y-6 animate-in fade-in duration-300">
-            {/* Suneung Mode Exclusive Dashboard View */}
+            {/* Suneung (모의고사) Mode Exclusive Dashboard View */}
             {mode === 'suneung' && analysisResult.suneungAnalysis && (
               <SuneungAnalysisView
                 analysis={analysisResult.suneungAnalysis}
+                onScrollToSentence={handleScrollToSentence}
+                onUpdateSuneung={handleUpdateSuneung}
+              />
+            )}
+
+            {/* Naesin Wrong Note Exclusive Dashboard View */}
+            {mode === 'naesin' && analysisResult.naesinAnalysis && (
+              <NaesinWrongNoteView
+                analysis={analysisResult.naesinAnalysis}
                 onScrollToSentence={handleScrollToSentence}
               />
             )}
