@@ -7,6 +7,7 @@ import { LegendModal } from './components/LegendModal';
 import { PrintModal } from './components/PrintModal';
 import { HistoryModal } from './components/HistoryModal';
 import { SmartExamImportModal } from './components/SmartExamImportModal';
+import { ParsedExamQuestion } from './utils/suneungParser';
 import { SuneungAnalysisView } from './components/SuneungAnalysisView';
 import { NaesinWrongNoteView } from './components/NaesinWrongNoteView';
 import { StyleComparisonPreview } from './components/StyleComparisonPreview';
@@ -595,17 +596,32 @@ export default function App() {
     setErrorMessage(null);
   };
 
-  const handleApplySmartImport = (parsed: {
-    prompt: string;
-    passage: string;
-    choices: [string, string, string, string, string];
-  }) => {
+  const handleApplySmartImport = (parsed: ParsedExamQuestion) => {
     if (parsed.prompt) setQuestionPrompt(parsed.prompt);
     if (parsed.passage) setPassageText(parsed.passage);
-    if (parsed.choices) setChoices(parsed.choices);
-    setMode('suneung');
+    if (parsed.hasParsedChoices) setChoices(parsed.choices);
+    if (parsed.questionTitle) setQuestionTitle(parsed.questionTitle);
+    if (parsed.questionType) setQuestionType(parsed.questionType);
+    if (parsed.studentAnswer) setStudentAnswer(parsed.studentAnswer);
+    if (parsed.correctAnswer) setCorrectAnswer(parsed.correctAnswer);
+
+    // Keep user's current mode if it's naesin or suneung; if it was general, switch appropriately
+    if (mode === 'general') {
+      if (parsed.questionTitle || parsed.studentAnswer || parsed.correctAnswer) {
+        setMode('naesin');
+      } else {
+        setMode('suneung');
+      }
+    }
+    // If already in 'naesin', stay in 'naesin'!
+    // If already in 'suneung', stay in 'suneung'!
+
     setIsSmartImportOpen(false);
-    showToast('시험지 문제가 발문, 지문, 5개 선지로 자동 분리되었습니다.');
+    showToast(
+      mode === 'naesin' || parsed.studentAnswer || parsed.correctAnswer
+        ? '내신 시험지 문제가 발문, 지문, 선지, 오답/정답으로 자동 분리되었습니다.'
+        : '시험지 문제가 발문, 지문, 5개 선지로 자동 분리되었습니다.'
+    );
   };
 
   const handleScrollToSentence = (sentenceNumber: number) => {
@@ -1054,6 +1070,7 @@ export default function App() {
         isOpen={isSmartImportOpen}
         onClose={() => setIsSmartImportOpen(false)}
         onApply={handleApplySmartImport}
+        mode={mode}
       />
     </div>
   );

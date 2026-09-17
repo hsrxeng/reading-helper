@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Sparkles,
   RefreshCw,
@@ -17,6 +17,7 @@ import {
 import { SAMPLE_PASSAGES, SamplePassage } from '../data/samplePassages';
 import { AnalysisMode } from '../types';
 import { NaesinInputSection } from './NaesinInputSection';
+import { parseExamText } from '../utils/suneungParser';
 
 interface PassageInputProps {
   mode: AnalysisMode;
@@ -96,6 +97,25 @@ export const PassageInput: React.FC<PassageInputProps> = ({
       updated[idx] = value;
       return updated;
     });
+  };
+
+  // Quick detect if passageText contains a full raw exam question with prompt or choices
+  const isFullExamPasted = useMemo(() => {
+    if (!passageText || passageText.length < 35) return false;
+    const hasCircled = /[①-⑤]/.test(passageText) || /\([1-5]\)/.test(passageText);
+    const hasPromptKeywords = /(?:다음\s*글|가장\s*적절|밑줄\s*친|문맥상|\[(?:중간|기말|모의|수능|서술형)|\b\d{1,2}\s*[.번])/.test(passageText);
+    return hasCircled || hasPromptKeywords;
+  }, [passageText]);
+
+  const handleQuickSplitPasted = () => {
+    const parsed = parseExamText(passageText);
+    if (parsed.passage) setPassageText(parsed.passage);
+    if (parsed.prompt) setQuestionPrompt(parsed.prompt);
+    if (parsed.hasParsedChoices) setChoices(parsed.choices);
+    if (parsed.questionTitle) setQuestionTitle(parsed.questionTitle);
+    if (parsed.questionType) setQuestionType(parsed.questionType);
+    if (parsed.studentAnswer) setStudentAnswer(parsed.studentAnswer);
+    if (parsed.correctAnswer) setCorrectAnswer(parsed.correctAnswer);
   };
 
   return (
@@ -239,15 +259,19 @@ export const PassageInput: React.FC<PassageInputProps> = ({
             </div>
           </div>
 
-          {/* In Suneung Mode: Smart Import Button */}
-          {mode === 'suneung' && (
+          {/* Smart Import Button for Suneung & Naesin */}
+          {(mode === 'suneung' || mode === 'naesin') && (
             <button
               type="button"
               onClick={onOpenSmartImport}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 rounded-xl transition-all cursor-pointer shadow-2xs"
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer shadow-2xs ${
+                mode === 'naesin'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700'
+                  : 'bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700'
+              }`}
             >
-              <FileUp className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span>시험지 통째로 붙여넣기 (스마트 분리)</span>
+              <FileUp className={`w-3.5 h-3.5 ${mode === 'naesin' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`} />
+              <span>{mode === 'naesin' ? '내신 시험지 통째로 붙여넣기 (스마트 분리)' : '시험지 통째로 붙여넣기 (스마트 분리)'}</span>
             </button>
           )}
         </div>
@@ -288,6 +312,7 @@ export const PassageInput: React.FC<PassageInputProps> = ({
             correctAnswer={correctAnswer}
             setCorrectAnswer={setCorrectAnswer}
             onOcrSuccess={onOcrSuccess}
+            onOpenSmartImport={onOpenSmartImport}
             isLoading={isLoading}
           />
         </div>
@@ -321,6 +346,29 @@ export const PassageInput: React.FC<PassageInputProps> = ({
 
       {/* Passage Textarea */}
       <div className="relative">
+        {/* Full Exam Detected Quick Split Banner */}
+        {isFullExamPasted && (
+          <div className="mb-2.5 p-3 bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 dark:from-emerald-950/50 dark:via-teal-950/40 dark:to-indigo-950/50 border border-emerald-300/80 dark:border-emerald-700/80 rounded-xl flex items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="flex items-center gap-2 text-emerald-950 dark:text-emerald-200">
+              <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <div>
+                <span className="font-bold">시험지 원문(발문·지문·선지)이 감지되었습니다!</span>
+                <span className="hidden sm:inline text-emerald-700 dark:text-emerald-400 ml-1">
+                  클릭 한 번으로 발문, 본문, 선지, 오답/정답으로 자동 분리합니다.
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleQuickSplitPasted}
+              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-bold rounded-lg shadow-xs transition-all cursor-pointer text-xs"
+            >
+              <span>원클릭 자동 분리</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-1.5">
           <label
             htmlFor="passage-textarea"

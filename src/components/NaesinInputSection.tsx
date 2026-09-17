@@ -15,6 +15,7 @@ import {
   Edit3,
   X,
   Target,
+  FileUp,
 } from 'lucide-react';
 
 interface NaesinInputSectionProps {
@@ -35,6 +36,7 @@ interface NaesinInputSectionProps {
     questionType?: string;
     detectedStudentAnswer?: string;
   }) => void;
+  onOpenSmartImport?: () => void;
   isLoading: boolean;
 }
 
@@ -60,6 +62,7 @@ export const NaesinInputSection: React.FC<NaesinInputSectionProps> = ({
   correctAnswer,
   setCorrectAnswer,
   onOcrSuccess,
+  onOpenSmartImport,
   isLoading,
 }) => {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
@@ -139,8 +142,19 @@ export const NaesinInputSection: React.FC<NaesinInputSectionProps> = ({
           </div>
         </div>
 
-        {/* OCR Photo Upload Trigger */}
-        <div>
+        {/* Action Buttons: Smart Import Text & OCR Photo Upload */}
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+          {onOpenSmartImport && (
+            <button
+              type="button"
+              onClick={onOpenSmartImport}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-800 dark:text-emerald-200 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded-xl shadow-xs transition-all cursor-pointer"
+            >
+              <FileUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>문제 복붙으로 스마트 분리</span>
+            </button>
+          )}
+
           <input
             ref={fileInputRef}
             type="file"
@@ -163,7 +177,7 @@ export const NaesinInputSection: React.FC<NaesinInputSectionProps> = ({
             ) : (
               <>
                 <Camera className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>시험지/문제 사진 올리기 (OCR)</span>
+                <span>시험지 사진 올리기 (OCR)</span>
               </>
             )}
           </button>
